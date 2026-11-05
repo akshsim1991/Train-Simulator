@@ -76,7 +76,7 @@ tools/        e2e.mjs (Playwright UI test), shot.mjs (screenshot harness), vendo
 ```
 
 ```bash
-npm test          # 55 unit tests: physics, routes, rules, hints; includes a bot that completes every route
+npm test          # 65 tests: physics, routes, rules, hints, fuzzing; a bot completes every route in every weather
 npm run test:e2e  # real-click UI test in headless Chromium (needs Playwright)
 ```
 

@@ -27,13 +27,7 @@ export class Cab {
     box(2.35, 0.24, 0.1, accent, 0, -0.5, -1.1, -0.1);
     this.screenPanel = box(0.95, 0.34, 0.03, panelMat, 0, -0.5, -0.9, -0.55);   // cluster sits here (HUD overlays it)
     this.screenPanel.visible = true;
-    // status LEDs
-    this.leds = {
-      aws: box(0.05, 0.05, 0.02, led(0xffb000), -0.72, -0.55, -0.85, -0.55),
-      doors: box(0.05, 0.05, 0.02, led(0x30e070), -0.64, -0.55, -0.85, -0.55),
-      slip: box(0.05, 0.05, 0.02, led(0xff4020), -0.56, -0.55, -0.85, -0.55),
-    };
-    for (const l of Object.values(this.leds)) l.material = l.material.clone();
+    this.leds = null;
     // side console + master controller
     box(0.55, 0.12, 0.55, accent, 0.82, -0.7, -0.45, -0.1);
     this.leverPivot = new THREE.Group(); this.leverPivot.position.set(0.82, -0.66, -0.4);
@@ -65,10 +59,5 @@ export class Cab {
       const sweep = (Math.sin(t * 4.2 + i * 0.5) * 0.5 + 0.5);
       w.rotation.z = raining ? park * (1 - sweep * 1.55) : park;
     });
-    if (flags) {
-      this.leds.aws.material.emissiveIntensity = flags.aws ? 3 : 0.08;
-      this.leds.doors.material.emissiveIntensity = flags.doorsOpen ? 3 : 0.15;
-      this.leds.slip.material.emissiveIntensity = flags.slip ? 3 : 0.05;
-    }
   }
 }

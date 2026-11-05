@@ -18,6 +18,6 @@ await p.waitForTimeout(Number(wait));
 if (script) { await p.evaluate(script); await p.waitForTimeout(Number(process.env.POST_WAIT || 2500)); }
 await p.evaluate(() => { window.__freeze = true; }); await p.waitForTimeout(1500);
 const info = await p.evaluate(() => { const a = window.__debug && window.__debug.app; return a ? { s: a.game.train.s.toFixed(1), v: a.game.train.v.toFixed(2), tiles: a.view.terrain.tiles.size, calls: a.view.renderer.info.render.calls, tris: a.view.renderer.info.render.triangles, phase: a.game.phase } : null; });
-console.log(JSON.stringify(info)); console.log(logs.slice(0, 12).join('\n'));
+console.log(JSON.stringify(info)); console.log('PERF', JSON.stringify(await p.evaluate(() => window.__perf || null))); console.log(logs.slice(0, 12).join('\n'));
 await p.screenshot({ path: out, timeout: 120000 });
 await b.close(); srv.close();
