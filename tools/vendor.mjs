@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const src = path.join(root, 'node_modules', 'three');
-const dst = path.join(root, 'vendor', 'three');
+const dst = path.join(root, 'src', 'vendor', 'three');
 const files = [
   'build/three.module.js',
   'examples/jsm/postprocessing/EffectComposer.js',

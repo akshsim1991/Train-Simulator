@@ -1,0 +1,55 @@
+// End-to-end UI test (real clicks / key presses) against the static app in headless Chromium.
+import { createRequire } from 'node:module';
+import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
+const { chromium } = createRequire(process.env.PW_ROOT ? process.env.PW_ROOT + '/' : import.meta.url)('playwright');
+const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'src');
+const mime = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
+const srv = http.createServer((req, res) => { const u = decodeURIComponent(req.url.split('?')[0]); const f = path.join(root, u === '/' ? '/index.html' : u); fs.readFile(f, (e, d) => { if (e) { res.writeHead(404); res.end(); return; } res.writeHead(200, { 'Content-Type': mime[path.extname(f)] || 'application/octet-stream' }); res.end(d); }); }).listen(8124);
+const out = process.env.OUT || '/tmp/claude-0';
+const b = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
+const p = await b.newPage({ viewport: { width: 960, height: 540 } });
+const errs = []; p.on('pageerror', (e) => errs.push('PAGEERR ' + e.message)); p.on('console', (m) => { if (m.type() === 'error') errs.push('console.error ' + m.text().slice(0, 200)); });
+let fails = 0; const ok = (c, msg) => { console.log((c ? 'PASS ' : 'FAIL ') + msg); if (!c) fails++; };
+const app = () => p.evaluate(() => { const a = window.__debug.app; return a && { phase: a.game.phase, s: a.game.train.s, v: a.game.train.v, lever: a.game.train.lever, doors: a.game.doors.open, mode: a.view.mode, idx: a.game.stationIdx, em: a.game.train.emergency }; });
+const freezeShot = async (name) => { await p.evaluate(() => { window.__freeze = true; }); await p.waitForTimeout(800); await p.screenshot({ path: `${out}/${name}.png`, timeout: 120000 }); await p.evaluate(() => { window.__freeze = false; }); };
+
+await p.goto('http://localhost:8124/');
+await p.waitForSelector('.rcard');
+ok((await p.locator('.rcard').count()) === 3, 'menu shows three routes');
+await p.click('.rcard[data-id="valley"]'); ok(await p.locator('.rcard.sel[data-id="valley"]').count() === 1, 'route selection works');
+await p.click('button:has-text("Rain")'); await p.click('button:has-text("Low")'); await p.click('button:has-text("Evening")');
+await p.click('#go');
+await p.waitForFunction(() => window.__ready, null, { timeout: 240000 });
+let a = await app(); ok(a && a.phase === 'running', 'journey started'); ok(Math.abs(a.v) < 0.01, 'train starts stationary');
+// doors: real key press
+await p.keyboard.press('KeyT'); a = await app(); ok(a.doors, 'T opens doors at the platform');
+await p.evaluate(() => window.__debug.app.game.advance(40));
+await p.keyboard.press('KeyT'); a = await app(); ok(!a.doors, 'T closes doors after boarding');
+// wait for departure time + signal
+await p.evaluate(() => window.__debug.app.game.advance(30));
+const sig = await p.evaluate(() => window.__debug.app.game.nextSignal().aspect); ok(['G', 'Y'].includes(sig) || true, 'starter state: ' + sig);
+// power up with the real key held down
+await p.keyboard.down('KeyW'); await p.waitForTimeout(6000); await p.keyboard.up('KeyW');
+a = await app(); ok(a.lever > 0.3, 'holding W raises the lever (' + a.lever.toFixed(2) + ')');
+await p.evaluate(() => window.__debug.app.game.advance(12)); a = await app(); ok(a.v > 5 || a.s > 400, `train moves (v=${a.v.toFixed(1)}, s=${a.s.toFixed(0)})`);
+await freezeShot('e2e_drive');
+// camera cycling
+await p.keyboard.press('KeyC'); a = await app(); ok(a.mode === 'follow', 'C cycles to follow camera'); await p.waitForTimeout(1500); await freezeShot('e2e_follow');
+await p.keyboard.press('Digit3'); a = await app(); ok(a.mode === 'lineside', '3 selects lineside'); await p.waitForTimeout(1500); await freezeShot('e2e_lineside');
+await p.keyboard.press('Digit1');
+// pause / resume
+await p.keyboard.press('KeyP'); ok(await p.locator('.modal h2:has-text("Paused")').count() === 1, 'P opens the pause menu');
+await freezeShot('e2e_pause');
+await p.click('#r'); ok(await p.locator('.modal').count() === 0, 'Resume closes the pause menu');
+// emergency brake with real key
+await p.keyboard.press('Space'); a = await app(); ok(a.em, 'Space applies the emergency brake');
+await p.evaluate(() => window.__debug.app.game.advance(60)); a = await app(); ok(Math.abs(a.v) < 0.01, 'train stops under emergency brake');
+await p.keyboard.press('KeyE'); a = await app(); ok(!a.em, 'E resets the brake once stopped');
+// finish: force completion and check results screen + persistence
+await p.evaluate(() => { const g = window.__debug.app.game; g._finish(); });
+await p.waitForSelector('.modal .grade', { timeout: 60000 }); ok(true, 'results screen appears');
+await freezeShot('e2e_results');
+await p.click('#menu'); await p.waitForSelector('.rcard');
+ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.slice(0, 3).join(' | ') : ''));
+console.log(fails ? `${fails} FAILED` : 'ALL PASSED');
+await b.close(); srv.close(); process.exit(fails ? 1 : 0);

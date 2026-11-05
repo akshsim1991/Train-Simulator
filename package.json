@@ -17,7 +17,7 @@
       "main.cjs",
       "preload.cjs",
       "src/**/*",
-      "vendor/**/*"
+      "src/vendor/**/*"
     ],
     "mac": {
       "category": "public.app-category.games",

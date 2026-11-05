@@ -10,7 +10,7 @@ const KMH = 1 / 3.6;
 export const PRESETS = {
   coastal: {
     id: 'coastal', name: 'Coastal Express', blurb: 'Fast seaside main line. Long straights, sweeping curves, tight timekeeping.',
-    difficulty: 1, seed: 7, length: 15000, amp: 70, scale: 2600, seaLevel: 0, minTrack: 5, maxGrade: 0.016,
+    difficulty: 1, seed: 7, length: 15000, amp: 70, scale: 2600, seaLevel: 0, minTrack: 34, maxGrade: 0.016,
     maxCurv: 1 / 650, curvNoise: 0.0011, lineSpeed: 160, snow: false, palette: 'coast',
     stations: [
       { at: 0.0, name: 'Marlow Bay' }, { at: 0.34, name: 'Port Haven' },
@@ -117,7 +117,7 @@ export function buildRoute(preset) {
     h = smooth(h, Math.round(120 / DS), 2);
   }
   // coastal lines must stay above the sea
-  if (P.id === 'coastal') for (let i = 0; i < N; i++) h[i] = Math.max(h[i], P.seaLevel + P.minTrack);
+  if (P.id === 'coastal') for (let i = 0; i < N; i++) h[i] = Math.max(h[i], P.seaLevel + 7);
   // level the stations: platform zones are fixed constraints from here on
   const fixed = new Uint8Array(N);
   const flat = Math.round(260 / DS), blend = Math.round(520 / DS);
@@ -199,13 +199,20 @@ export function buildRoute(preset) {
     const kmh = limitKmh[i];
     if (!zones.length || zones[zones.length - 1].kmh !== kmh) zones.push({ s: i * DS, kmh });
   }
-  // a speed rise right after a short zone should wait; remove zones shorter than 120 m by taking the min
-  for (let pass = 0; pass < 4; pass++) {
-    for (let i = 1; i < zones.length - 1; i++) {
-      const len = zones[i + 1].s - zones[i].s;
-      if (len < 120) { zones[i].kmh = Math.min(zones[i].kmh, zones[i - 1].kmh); }
+  // Consolidate: any zone shorter than 300 m that is not a dip is lowered to its lower neighbour
+  // (removes staircases like 130/120/110 and short bumps); dips are already widened by the 160 m window.
+  const MINZ = 300;
+  for (let pass = 0; pass < 12; pass++) {
+    let changed = false;
+    for (let i = 0; i < zones.length; i++) {
+      const len = (i + 1 < zones.length ? zones[i + 1].s : P.length) - zones[i].s;
+      if (len >= MINZ || i === 0) continue;
+      const nb = [zones[i - 1].kmh]; if (i + 1 < zones.length) nb.push(zones[i + 1].kmh);
+      const lower = Math.min(...nb);
+      if (zones[i].kmh > lower) { zones[i].kmh = lower; changed = true; }
     }
-    for (let i = zones.length - 1; i >= 1; i--) if (zones[i].kmh === zones[i - 1].kmh) zones.splice(i, 1);
+    for (let i = zones.length - 1; i >= 1; i--) if (zones[i].kmh === zones[i - 1].kmh) { zones.splice(i, 1); changed = true; }
+    if (!changed) break;
   }
   const limits = zones.map((z0, i) => ({ s: z0.s, kmh: z0.kmh, tsr: tsrs.some((q) => Math.abs(q.s0 - z0.s) < 8 && z0.kmh <= 60) }));
 
@@ -226,9 +233,11 @@ export function buildRoute(preset) {
   const stationNear = (s, d) => stations.some((st) => Math.abs(st.s - s) < d);
   const tunnels = findRanges((i) => depth[i] > 10, 140, 120)
     .filter((q) => !stations.some((st) => q[1] > st.s - 700 && q[0] < st.s + 500))
-    .map((q) => ({ s0: Math.max(0, q[0] - 20), s1: Math.min(P.length, q[1] + 20) }));
+    .map((q) => ({ s0: Math.max(0, q[0]), s1: Math.min(P.length, q[1]) }));
   const bridges = findRanges((i) => -depth[i] > 9, 60, 60)
     .filter((q) => !tunnels.some((t) => q[1] > t.s0 && q[0] < t.s1))
+    .filter((q) => q[1] - q[0] <= 700)                                       // longer crossings are embankments
+    .filter((q) => !stations.some((st) => q[1] > st.s - 450 && q[0] < st.s + 450))
     .map((q) => ({ s0: q[0] - 30, s1: q[1] + 30 }));
 
   // ---- signals --------------------------------------------------------------------------
