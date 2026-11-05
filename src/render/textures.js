@@ -109,18 +109,32 @@ export function textTexture(lines, { w = 512, h = 128, bg = '#12315f', fg = '#ff
 
 export function speedSignTexture(kmh, tsr = false) {
   return canvasTex(128, 128, (ctx) => {
-    ctx.fillStyle = tsr ? '#ffd400' : '#fff'; ctx.beginPath(); ctx.arc(64, 64, 62, 0, 7); ctx.fill();
-    ctx.strokeStyle = '#d4141c'; ctx.lineWidth = 12; ctx.beginPath(); ctx.arc(64, 64, 54, 0, 7); ctx.stroke();
+    ctx.fillStyle = '#ffd400'; ctx.beginPath(); ctx.arc(64, 64, 62, 0, 7); ctx.fill();
+    ctx.strokeStyle = tsr ? '#d4141c' : '#111'; ctx.lineWidth = 10; ctx.beginPath(); ctx.arc(64, 64, 54, 0, 7); ctx.stroke();
     ctx.fillStyle = '#111'; ctx.font = `bold ${kmh >= 100 ? 54 : 64}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(kmh), 64, 68);
   }, { repeat: false });
 }
 
+/** Indian station name board: yellow with black text in English and the local script (3 lines: local, English, code). */
+export function stationBoardTexture(name, local, code) {
+  return canvasTex(1024, 192, (ctx, w, h) => {
+    ctx.fillStyle = '#f5c800'; ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = '#111'; ctx.lineWidth = 8; ctx.strokeRect(6, 6, w - 12, h - 12);
+    ctx.fillStyle = '#111'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = 'bold 62px "Nirmala UI", "Noto Sans Devanagari", "Noto Sans Kannada", "Kohinoor Devanagari", "Kannada Sangam MN", system-ui, sans-serif'; ctx.fillText(local || '', w / 2, 52);
+    ctx.font = 'bold 74px system-ui, Arial, sans-serif'; ctx.fillText(String(name).toUpperCase(), w / 2, 118);
+    ctx.font = 'bold 28px system-ui, Arial, sans-serif'; ctx.fillText(code || '', w - 70, h - 26);
+  }, { repeat: false });
+}
+
+/** Tintable (near-white) building facade: window grid, balcony band and a door; colour comes from instance colours. */
 export function houseTexture() {
   return canvasTex(128, 128, (ctx, w, h) => {
     ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
     ctx.fillStyle = '#3a4b5e';
-    for (const x of [18, 80]) { ctx.fillRect(x, 22, 30, 36); ctx.fillStyle = '#c9d6e3'; ctx.fillRect(x + 2, 24, 26, 15); ctx.fillStyle = '#3a4b5e'; ctx.fillRect(x + 14, 22, 2, 36); }
-    ctx.fillStyle = '#5a3d28'; ctx.fillRect(52, 70, 24, 58);
-    ctx.fillStyle = '#9aa0a8'; ctx.fillRect(0, 118, w, 10);
+    for (const x of [14, 82]) { ctx.fillRect(x, 20, 30, 36); ctx.fillStyle = '#b8c7d6'; ctx.fillRect(x + 2, 22, 26, 14); ctx.fillStyle = '#3a4b5e'; ctx.fillRect(x + 14, 20, 2, 36); }
+    ctx.fillStyle = '#d9d9d9'; ctx.fillRect(0, 62, w, 6);                 // balcony / floor band
+    ctx.fillStyle = '#5a3d28'; ctx.fillRect(50, 78, 26, 50);              // door
+    ctx.fillStyle = '#a0a6ad'; ctx.fillRect(0, 120, w, 8);                // plinth
   });
 }

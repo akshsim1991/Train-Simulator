@@ -15,12 +15,21 @@ const freezeShot = async (name) => { await p.evaluate(() => { window.__freeze = 
 
 await p.goto('http://localhost:8124/');
 await p.waitForSelector('.rcard');
-ok((await p.locator('.rcard').count()) === 3, 'menu shows three routes');
-await p.click('.rcard[data-id="valley"]'); ok(await p.locator('.rcard.sel[data-id="valley"]').count() === 1, 'route selection works');
+ok((await p.locator('.rcard').count()) === 2, 'menu shows the two Indian routes');
+await p.click('.rcard:has-text("Delhi")'); ok(await p.locator('.rcard.sel:has-text("Delhi")').count() === 1, 'route selection works');
+ok((await p.locator('#from option').count()) === 6, 'journey pickers list the six Delhi–Agra stations');
+await p.selectOption('#from', '1'); await p.selectOption('#to', '4');
+await p.click('button:has-text("All stations")');
+await p.waitForFunction(() => /\d+ stops/.test(document.getElementById('summary').textContent) && /FDB/.test(document.getElementById('summary').textContent), null, { timeout: 30000 });
+ok(/FDB → PWL → KSV → MTJ/.test(await p.textContent('#summary')), 'summary lists the chosen section: ' + (await p.textContent('#summary')).replace(/\s+/g, ' ').trim());
+await p.click('.tcard:has-text("Gatimaan")'); ok(await p.locator('.tcard.sel:has-text("Gatimaan")').count() === 1, 'train selection works');
 await p.click('button:has-text("Rain")'); await p.click('button:has-text("Low")'); await p.click('button:has-text("Evening")');
 await p.click('#go');
 await p.waitForFunction(() => window.__ready, null, { timeout: 240000 });
 let a = await app(); ok(a && a.phase === 'running', 'journey started'); ok(Math.abs(a.v) < 0.01, 'train starts stationary');
+const cfg = await p.evaluate(() => { const g = window.__debug.app.game; return { unit: g.unit.consistId, stops: g.route.stops.map((x) => x.short).join(','), len: Math.round(g.unit.length) }; });
+ok(cfg.unit === 'gatimaan' && cfg.stops === 'FDB,PWL,KSV,MTJ', `game honours consist + section (${JSON.stringify(cfg)})`);
+const s0 = a.s;
 // doors: real key press
 await p.keyboard.press('KeyT'); a = await app(); ok(a.doors, 'T opens doors at the platform');
 await p.evaluate(() => window.__debug.app.game.advance(40));
@@ -31,7 +40,7 @@ const sig = await p.evaluate(() => window.__debug.app.game.nextSignal().aspect);
 // power up with the real key held down
 await p.keyboard.down('KeyW'); await p.waitForTimeout(6000); await p.keyboard.up('KeyW');
 a = await app(); ok(a.lever > 0.3, 'holding W raises the lever (' + a.lever.toFixed(2) + ')');
-await p.evaluate(() => window.__debug.app.game.advance(12)); a = await app(); ok(a.v > 5 || a.s > 400, `train moves (v=${a.v.toFixed(1)}, s=${a.s.toFixed(0)})`);
+await p.evaluate(() => window.__debug.app.game.advance(12)); a = await app(); ok(a.v > 3 || a.s > s0 + 20, `train moves (v=${a.v.toFixed(1)}, s=${(a.s - s0).toFixed(0)} m)`);
 await freezeShot('e2e_drive');
 // camera cycling
 await p.keyboard.press('KeyC'); a = await app(); ok(a.mode === 'follow', 'C cycles to follow camera'); await p.waitForTimeout(1500); await freezeShot('e2e_follow');

@@ -1,7 +1,7 @@
 {
   "name": "train-simulator",
-  "version": "0.2.0",
-  "description": "Realistic 3D train driving simulator for Windows and macOS",
+  "version": "0.3.0",
+  "description": "Indian Railways 3D train driving simulator (WAP-7 / WDP-4D, LHB / ICF) for Windows and macOS",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
@@ -14,8 +14,8 @@
     "dist": "electron-builder"
   },
   "build": {
-    "appId": "com.akshsim1991.trainsimulator",
-    "productName": "Train Simulator",
+    "appId": "com.akshsim1991.indianrailsimulator",
+    "productName": "Indian Rail Simulator",
     "copyright": "Copyright \u00a9 2026",
     "files": [
       "main.cjs",

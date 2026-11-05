@@ -1,13 +1,18 @@
-import { PRESETS } from '../sim/route.js';
+import { PRESETS, buildRoute } from '../sim/route.js';
+import { CONSISTS, makeUnit } from '../sim/consist.js';
+import { makeSession } from '../sim/timetable.js';
 
 const $ = (h) => { const t = document.createElement('template'); t.innerHTML = h.trim(); return t.content.firstChild; };
 const PICS = {
-  coastal: 'linear-gradient(180deg,#6fb2ea 0%,#cfe7f6 52%,#2f7aa8 52%,#1d5a7a 100%)',
-  valley: 'linear-gradient(180deg,#8fc0e6 0%,#d9ecf5 45%,#6aa14a 45%,#3d6f2e 100%)',
-  alpine: 'linear-gradient(180deg,#5f93c9 0%,#c8dcf0 40%,#e8eef5 40%,#9aa7b5 70%,#55704a 100%)',
+  bengaluru_mysuru: 'linear-gradient(180deg,#cfd9e2 0%,#e8dcc4 48%,#5e8a3a 48%,#8a4a2a 78%,#4f7a2c 100%)',
+  delhi_agra: 'linear-gradient(180deg,#d9cdb4 0%,#efe2c4 50%,#d6b73a 50%,#a8c040 78%,#c9a23a 100%)',
 };
-const HOURS = [['Morning', 8], ['Noon', 12.5], ['Evening', 18.5], ['Night', 22.5]];
+const HOURS = [['Morning', 8], ['Noon', 12.5], ['Evening', 18.5], ['Night', 21.5]];
 export const fmtHour = (h) => `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.round((h % 1) * 60) % 60).padStart(2, '0')}`;
+
+const routeCache = new Map();
+function getRoute(id) { if (!routeCache.has(id)) routeCache.set(id, buildRoute(id)); return routeCache.get(id); }
+const fmtDur = (sec) => `${Math.floor(sec / 3600)} h ${String(Math.round((sec % 3600) / 60)).padStart(2, '0')} min`;
 
 export class Screens {
   constructor(root) { this.root = root; }
@@ -15,53 +20,90 @@ export class Screens {
   mount(el) { this.clear(); this.root.appendChild(el); return el; }
 
   menu(data, onStart) {
-    const s = data.settings; const route = PRESETS[s.route] ? s.route : 'coastal'; s.route = route;
-    if (s.hour == null) s.hour = PRESETS[route].defaultTime;
+    const s = data.settings; if (!PRESETS[s.route]) s.route = 'bengaluru_mysuru'; if (!CONSISTS[s.consist]) s.consist = 'shatabdi';
+    const P0 = PRESETS[s.route]; if (s.hour == null) s.hour = P0.defaultTime;
     const el = $(`<div class="screen"><div class="menu">
-      <div class="brand"><h1>TRAIN <span>SIMULATOR</span></h1><small>Driver's edition</small></div>
-      <p class="sub">Drive a modern electric multiple unit on a timetable. Stop precisely, obey signals and speed limits, and keep your passengers comfortable.</p>
-      <div class="routes"></div>
-      <div class="options">
-        <div class="opt"><h4>Weather</h4><div class="seg" data-k="weather"></div><h4 style="margin-top:14px">Time of day <span class="hourval"></span></h4><div class="seg" data-k="hourpre" style="margin-bottom:8px"></div><input type="range" min="0" max="23.75" step="0.25" id="hour"></div>
-        <div class="opt"><h4>Graphics</h4><div class="seg" data-k="quality"></div><h4 style="margin-top:14px">Volume</h4><input type="range" min="0" max="1" step="0.05" id="vol"></div>
-        <div class="opt"><h4>Assists &amp; rules</h4>
-          <label class="chk"><input type="checkbox" id="hints"> Contextual hints</label>
-          <label class="chk"><input type="checkbox" id="alerter"> Driver vigilance (alerter)</label>
-          <label class="chk"><input type="checkbox" id="voice"> Station announcements (voice)</label></div>
+      <div class="brand"><h1>INDIAN RAIL <span>SIMULATOR</span></h1><small>Driver's cab</small></div>
+      <p class="sub">Drive WAP-7 and WDP-4D locomotives with LHB and ICF coaches on real Indian Railways main lines. Stop on the mark, obey signals and the timetable.</p>
+      <div class="cols">
+        <div class="col">
+          <div class="opt"><h4>Route</h4><div class="routes"></div></div>
+          <div class="opt"><h4>Journey</h4>
+            <div class="jrow"><label>From<select id="from"></select></label><label>To<select id="to"></select></label></div>
+            <div class="seg" data-k="pattern" style="margin:8px 0 6px"></div><div class="summary" id="summary"></div></div>
+          <div class="opt"><h4>Train</h4><div class="trains"></div></div>
+        </div>
+        <div class="col narrow">
+          <div class="opt"><h4>Weather</h4><div class="seg" data-k="weather"></div><h4 style="margin-top:12px">Time of day <span class="hourval"></span></h4><div class="seg" data-k="hourpre" style="margin-bottom:6px"></div><input type="range" min="0" max="23.75" step="0.25" id="hour"></div>
+          <div class="opt"><h4>Graphics</h4><div class="seg" data-k="quality"></div><div class="note" id="qnote"></div><h4 style="margin-top:12px">Volume</h4><input type="range" min="0" max="1" step="0.05" id="vol"></div>
+          <div class="opt"><h4>Assists &amp; rules</h4>
+            <label class="chk"><input type="checkbox" id="hints"> Contextual hints</label>
+            <label class="chk"><input type="checkbox" id="alerter"> Driver vigilance (alerter)</label>
+            <label class="chk"><input type="checkbox" id="voice"> Station announcements (voice)</label></div>
+        </div>
       </div>
       <div class="actions"><button class="btn btn-primary" id="go">Start driving</button><button class="btn" id="how">How to drive</button>
         <div class="keys"><span><kbd>W</kbd>/<kbd>S</kbd> power &amp; brake</span><span><kbd>T</kbd> doors</span><span><kbd>E</kbd> acknowledge</span><span><kbd>␣</kbd> emergency</span><span><kbd>C</kbd> camera</span></div></div>
     </div></div>`);
-    const routes = el.querySelector('.routes');
-    const renderRoutes = () => {
-      routes.innerHTML = '';
-      for (const p of Object.values(PRESETS)) {
-        const best = data.best[p.id];
-        const card = $(`<div class="rcard ${p.id === s.route ? 'sel' : ''}" data-id="${p.id}">
-          <div class="pic" style="--pic:${PICS[p.id]}"></div>${best ? `<div class="best g-${best.grade}">${best.grade} · ${Math.round(best.total)}</div>` : ''}
-          <h3>${p.name}</h3><p>${p.blurb}</p>
-          <div class="meta"><span class="dots">${[1, 2, 3].map((i) => `<i class="${i <= p.difficulty ? 'on' : ''}"></i>`).join('')}</span><span><b>${(p.length / 1000).toFixed(1)}</b> km</span><span><b>${p.stations.length}</b> stations</span></div></div>`);
-        card.addEventListener('click', () => { s.route = p.id; s.hour = p.defaultTime; if (s.route === 'alpine' && s.weather === 'clear') { /* keep */ } renderRoutes(); syncHour(); });
-        routes.appendChild(card);
-      }
-    };
+    const $q = (q) => el.querySelector(q);
     const seg = (key, items, current, onPick) => {
-      const e = el.querySelector(`.seg[data-k="${key}"]`); e.innerHTML = '';
+      const e = $q(`.seg[data-k="${key}"]`); e.innerHTML = '';
       for (const [label, val] of items) { const b = $(`<button class="${String(val) === String(current()) ? 'sel' : ''}">${label}</button>`); b.addEventListener('click', () => { onPick(val); refresh(); }); e.appendChild(b); }
     };
-    const hourEl = el.querySelector('#hour'), hourVal = el.querySelector('.hourval');
-    const syncHour = () => { hourEl.value = s.hour; hourVal.textContent = fmtHour(s.hour); };
-    const refresh = () => {
-      seg('weather', [['Clear', 'clear'], ['Rain', 'rain'], ['Fog', 'fog'], ['Snow', 'snow']], () => s.weather, (v) => { s.weather = v; });
-      seg('quality', [['Low', 'low'], ['Medium', 'medium'], ['High', 'high']], () => s.quality, (v) => { s.quality = v; });
-      seg('hourpre', HOURS, () => HOURS.find(([, h]) => h === s.hour)?.[1], (v) => { s.hour = v; syncHour(); });
+    const renderRoutes = () => {
+      const box = $q('.routes'); box.innerHTML = '';
+      for (const p of Object.values(PRESETS)) {
+        const best = data.best[p.id];
+        const c = $(`<div class="rcard ${p.id === s.route ? 'sel' : ''}"><div class="pic" style="--pic:${PICS[p.id]}"></div>${best ? `<div class="best g-${best.grade}">${best.grade} · ${Math.round(best.total)}</div>` : ''}
+          <h3>${p.name}</h3><p>${p.blurb}</p><div class="meta"><span class="dots">${[1, 2, 3].map((i) => `<i class="${i <= p.difficulty ? 'on' : ''}"></i>`).join('')}</span><span><b>${p.stations[p.stations.length - 1].km}</b> km</span><span><b>${p.stations.length}</b> stations</span></div></div>`);
+        c.addEventListener('click', () => { s.route = p.id; s.hour = p.defaultTime; s.from = 0; s.to = null; renderRoutes(); fillStations(); refresh(); });
+        box.appendChild(c);
+      }
     };
-    hourEl.addEventListener('input', () => { s.hour = parseFloat(hourEl.value); hourVal.textContent = fmtHour(s.hour); refresh(); });
-    const vol = el.querySelector('#vol'); vol.value = s.volume; vol.addEventListener('input', () => { s.volume = parseFloat(vol.value); });
-    for (const k of ['hints', 'alerter', 'voice']) { const c = el.querySelector('#' + k); c.checked = !!s[k]; c.addEventListener('change', () => { s[k] = c.checked; }); }
-    el.querySelector('#go').addEventListener('click', () => onStart());
-    el.querySelector('#how').addEventListener('click', () => this.help(() => this.menu(data, onStart)));
-    renderRoutes(); refresh(); syncHour(); this.mount(el); return el;
+    const renderTrains = () => {
+      const box = $q('.trains'); box.innerHTML = '';
+      for (const c of Object.values(CONSISTS)) {
+        const u = makeUnit(c.id);
+        const t = $(`<div class="tcard ${c.id === s.consist ? 'sel' : ''}"><b>${c.title}</b><span>${c.blurb}</span><small>${Math.round(u.mass / 1000)} t · ${Math.round(u.length)} m · ${Math.round(u.topSpeed * 3.6)} km/h · ${Math.round(u.loco.railPower / 1000 / 0.746 / 1000 * 1000)} hp</small></div>`);
+        t.addEventListener('click', () => { s.consist = c.id; renderTrains(); summarise(); });
+        box.appendChild(t);
+      }
+    };
+    const fillStations = () => {
+      const P = PRESETS[s.route], f = $q('#from'), t = $q('#to'); f.innerHTML = ''; t.innerHTML = '';
+      P.stations.forEach((st, i) => { f.appendChild($(`<option value="${i}">${st.name} (${st.km} km)</option>`)); t.appendChild($(`<option value="${i}">${st.name} (${st.km} km)</option>`)); });
+      s.from = Math.min(s.from ?? 0, P.stations.length - 2); if (s.to == null || s.to <= s.from) s.to = P.stations.length - 1; f.value = s.from; t.value = s.to;
+    };
+    let token = 0;
+    const summarise = () => {
+      const box = $q('#summary'); const my = ++token; box.textContent = 'Calculating timetable…';
+      setTimeout(() => {
+        if (my !== token) return;
+        try {
+          const r = getRoute(s.route), u = makeUnit(s.consist), ses = makeSession(r, u, { from: s.from, to: s.to, pattern: s.pattern });
+          const km = (ses.stops[ses.stops.length - 1].km - ses.stops[0].km);
+          box.innerHTML = `<b>${ses.stops.length}</b> stops · <b>${km}</b> km · scheduled <b>${fmtDur(ses.stops[ses.stops.length - 1].arr)}</b><br><span>${ses.stops.map((x) => x.short).join(' → ')}</span>`;
+        } catch (e) { box.textContent = ''; }
+      }, 20);
+    };
+    const hourEl = $q('#hour'), hourVal = $q('.hourval');
+    const refresh = () => {
+      seg('pattern', [['Express stops', 'express'], ['All stations', 'all']], () => s.pattern, (v) => { s.pattern = v; });
+      seg('weather', [['Clear', 'clear'], ['Rain', 'rain'], ['Fog', 'fog']], () => s.weather, (v) => { s.weather = v; });
+      seg('quality', [['Auto', 'auto'], ['Low', 'low'], ['Medium', 'medium'], ['High', 'high']], () => s.quality, (v) => { s.quality = v; });
+      seg('hourpre', HOURS, () => HOURS.find(([, h]) => h === s.hour)?.[1], (v) => { s.hour = v; hourEl.value = v; hourVal.textContent = fmtHour(v); });
+      $q('#qnote').textContent = s.quality === 'auto' ? 'Picks a preset for your GPU and adapts resolution to keep the game smooth.' : s.quality === 'low' ? 'Best for laptops and integrated graphics.' : s.quality === 'medium' ? 'Shadows and denser scenery.' : 'Bloom, anti-aliasing and the longest view distance.';
+      summarise();
+    };
+    $q('#from').addEventListener('change', (e) => { s.from = +e.target.value; if (s.to <= s.from) { s.to = Math.min(PRESETS[s.route].stations.length - 1, s.from + 1); $q('#to').value = s.to; } summarise(); });
+    $q('#to').addEventListener('change', (e) => { s.to = +e.target.value; if (s.to <= s.from) { s.from = Math.max(0, s.to - 1); $q('#from').value = s.from; } summarise(); });
+    hourEl.value = s.hour; hourVal.textContent = fmtHour(s.hour);
+    hourEl.addEventListener('input', () => { s.hour = parseFloat(hourEl.value); hourVal.textContent = fmtHour(s.hour); seg('hourpre', HOURS, () => HOURS.find(([, h]) => h === s.hour)?.[1], (v) => { s.hour = v; hourEl.value = v; hourVal.textContent = fmtHour(v); }); });
+    const vol = $q('#vol'); vol.value = s.volume; vol.addEventListener('input', () => { s.volume = parseFloat(vol.value); });
+    for (const k of ['hints', 'alerter', 'voice']) { const c = $q('#' + k); c.checked = !!s[k]; c.addEventListener('change', () => { s[k] = c.checked; }); }
+    $q('#go').addEventListener('click', () => onStart());
+    $q('#how').addEventListener('click', () => this.help(() => this.menu(data, onStart)));
+    renderRoutes(); renderTrains(); fillStations(); refresh(); this.mount(el); return el;
   }
 
   help(onClose) {
@@ -93,7 +135,7 @@ export class Screens {
     const fm = (s) => (s == null ? '—' : `${s >= 0 ? '+' : '−'}${Math.abs(Math.round(s))} s`);
     const rows = sc.stops.map((r) => `<tr><td>${r.name}</td><td>${r.e == null ? 'ran through' : `${Math.abs(r.e).toFixed(1)} m ${r.e < 0 ? 'short' : 'past'}`}</td><td>${fm(r.late)}</td><td>${r.accuracy == null ? '—' : Math.round(r.accuracy)}</td></tr>`).join('');
     const el = $(`<div class="screen"><div class="panel modal">
-      <h2>${ok ? 'Journey complete' : 'Journey ended'}</h2><p class="sub">${ok ? `${game.route.name} · ${Math.floor(game.t / 60)} min ${Math.round(game.t % 60)} s` : game.failReason}</p>
+      <h2>${ok ? 'Journey complete' : 'Journey ended'}</h2><p class="sub">${ok ? `${game.route.name} · ${game.unit.name} · ${Math.floor(game.t / 60)} min ${Math.round(game.t % 60)} s` : game.failReason}</p>
       <div class="res-top"><div class="grade g-${sc.grade}">${sc.grade}</div><div class="score">${Math.round(sc.total)}<small>${ok ? 'overall score' : 'score capped: journey not completed'}</small></div></div>
       <div class="cats">${bar('Stopping', sc.accuracy)}${bar('Punctuality', sc.punctuality)}${bar('Safety', sc.safety)}${bar('Speed limits', sc.speed)}${bar('Comfort', sc.comfort)}</div>
       ${rows ? `<table class="stn"><tr><th>Station</th><th>Stopped</th><th>vs timetable</th><th>Pts</th></tr>${rows}</table>` : ''}

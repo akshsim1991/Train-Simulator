@@ -32,7 +32,7 @@ export function segmentTime(route, unit, stopA, stopB) {
     if (t.s >= b - 1.0 && t.v < 0.3) break;
     if (t.s > b + 40) break;                                                         // overshoot guard
   }
-  const res = time * 1.045;                                                          // small margin for the human driver
+  const res = time * 1.07;                                                           // small margin for the human driver
   perRoute.set(key, res); return res;
 }
 

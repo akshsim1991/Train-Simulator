@@ -111,7 +111,7 @@ export class Hud {
     // toasts
     const log = game.log; for (; this.lastLog < log.length; this.lastLog++) this.toast(log[this.lastLog].text, log[this.lastLog].kind);
     // speedo & lists (the canvas gauge redraws at 30 Hz)
-    if ((this._f = (this._f || 0) + 1) % 2 === 0) this._speedo(game, view);
+    if (!this._drawn || (this._f = (this._f || 0) + 1) % 2 === 0) { this._speedo(game, view); this._drawn = true; }
     const up = game.upcoming(3000).slice(0, 6);
     const rows = this.el.cluster.querySelector('.rows');
     const html = up.map((u) => {

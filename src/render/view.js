@@ -5,8 +5,8 @@ import { TrackBuilder } from './track.js';
 import { Structures } from './structures.js';
 import { Environment } from './environment.js';
 import { TrainModel } from './trainmodel.js';
+import { Traffic } from './traffic.js';
 import { Cab } from './cab.js';
-import { UNIT } from '../sim/physics.js';
 import { fbm } from '../sim/noise.js';
 
 const dpr = () => (typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1);
@@ -59,11 +59,12 @@ export class View {
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(62, 16 / 9, 0.12, 6500);
     this.scene.add(this.camera);
-    this.env = new Environment(r, this.scene, this.camera, this.q, opts.weather, opts.startHour);
+    this.env = new Environment(r, this.scene, this.camera, this.q, opts.weather, opts.startHour, route.haze);
     this.terrain = new Terrain(this.scene, route, this.q, opts.weather);
     this.track = new TrackBuilder(this.scene, route, this.q);
     this.structs = new Structures(this.scene, route, this.q);
-    this.train = new TrainModel(this.scene, route, UNIT);
+    this.train = new TrainModel(this.scene, route, opts.unit, { beam: true });
+    this.traffic = new Traffic(this.scene, route, opts.seed || 1);
     this.cab = new Cab(); this.camera.add(this.cab.group);
     this.mode = 'cab'; this.modeBlend = 0;
     this.pos = new THREE.Vector3(); this.look = new THREE.Vector3(); this.prevPos = new THREE.Vector3(); this.vel = new THREE.Vector3();
@@ -118,8 +119,8 @@ export class View {
     let target = new THREE.Vector3(), lookAt = null, roll = 0, pitch = 0, yaw = 0;
     const p0 = R.at(sFront);
     if (mode === 'cab') {
-      const se = sFront - 2.4;
-      const f = frameAt(R, se, 0, 2.85);
+      const se = sFront - 2.6;
+      const f = frameAt(R, se, -0.55, 3.15);
       const rough = Math.min(1, Math.abs(T.v) / 30);
       const t = this._time;
       const jx = (fbm(t * 5.1, 1.7, 3, 2) - 0.5) * 0.014 * rough, jy = (fbm(t * 6.3, 9.2, 4, 2) - 0.5) * 0.02 * rough;
@@ -129,7 +130,7 @@ export class View {
       yaw = -f.p.heading; pitch = Math.atan(f.p.grade) - Math.max(-0.02, Math.min(0.02, T.a * 0.012)); roll = -f.p.bank * 0.7 + this.shake.roll + (fbm(t * 3.3, 5.5, 7, 2) - 0.5) * 0.006 * rough;
       this.camera.rotation.order = 'YXZ'; this.camera.rotation.set(pitch, yaw, roll);
     } else if (mode === 'follow') {
-      const f = frameAt(R, sFront - 30, 0, 9.5); const g = frameAt(R, sFront + 60, 0, 1.5);
+      const f = frameAt(R, sFront - 34, -1.5, 9.5); const g = frameAt(R, sFront + 70, 0, 2.5);
       target.set(f.x, f.y, f.z); lookAt = new THREE.Vector3(g.x, g.y, g.z);
     } else { // lineside TV camera
       if (this.lineside.s < 0 || sFront - this.lineside.s > 40 || this.lineside.s - sFront > 520) {
@@ -154,20 +155,19 @@ export class View {
 
     // --- world ---------------------------------------------------------------------------
     const camP = this.camera.position;
-    const inTunnel = R.inTunnel(mode === 'cab' ? sFront - 2.4 : (R.nearest(camP.x, camP.z, 50)?.s ?? sFront)) ? 1 : 0;
+    const inTunnel = R.inTunnel(mode === 'cab' ? sFront - 2.6 : (R.nearest(camP.x, camP.z, 50)?.s ?? sFront)) ? 1 : 0;
     this.env.update(game.clock, camP, dt, inTunnel, this.vel.clone());
     const heading = p0.heading;
     this.terrain.update({ x: camP.x, z: camP.z }, heading, 5);
     this.track.update(sFront);
     this.terrain.animate(this._time, camP);
     this.structs.update(camP, this.env.night, this.env.tunnel);
-    this.train.group.visible = mode !== 'cab';
-    this.train.update(sFront, this.env.night, this.env.tunnel, T.v);
-    this.train.spin(T.v * dt);
-    if (this.train.beam) this.train.beam.visible = true;
+    this.train.setVisible(mode !== 'cab');
+    this.train.update(sFront, this.env.night, this.env.tunnel);
+    this.traffic.update(dt, sFront, Math.abs(T.v), this.env.night, this.env.tunnel);
     this.applyState(game);
     const raining = this.env.weather === 'rain' || this.env.weather === 'snow';
-    this.cab.update(T.lever, this.env.night, this.env.weather === 'rain', this._time, { aws: game.alert.aws > 0, doorsOpen: game.doors.open, slip: T.slip });
+    this.cab.update(T.lever, this.env.night, this.env.weather === 'rain', this._time, { brakeCyl: T.brakeCyl, traction: T.traction, speedKmh: Math.abs(T.v) * 3.6 });
     if (this.grade) { this.grade.uniforms.time.value = this._time % 10; this.grade.uniforms.tunnel.value = this.env.tunnel; }
     if (this.bloom) this.bloom.strength = 0.3 + 0.45 * this.env.night + 0.2 * this.env.tunnel;
     this.renderer.info.reset();

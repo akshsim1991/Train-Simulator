@@ -1,163 +1,71 @@
 import * as THREE from './three.js';
 import { frameAt } from './geom.js';
-import { glowTexture } from './textures.js';
+import { getCoachAsset, getBogieAssets, getLocoAsset } from './stock.js';
 
-const CAR_LEN = 20, BODY_LEN = 19.4, NOSE = 4.2, HALF_W = 1.4, ROOF = 3.85, FLOOR = 0.55;
+const GAP = 0.6;                      // coupled-vehicle gap (m)
+const dummy = new THREE.Object3D();
 
-/** Cross-section outline of the car body (x lateral, y up), counter-clockwise. */
-function profilePoints() {
-  const pts = [];
-  pts.push([-HALF_W + 0.18, FLOOR], [HALF_W - 0.18, FLOOR], [HALF_W, FLOOR + 0.25]);
-  pts.push([HALF_W, 2.9]);
-  for (let i = 1; i <= 8; i++) { const a = (Math.PI / 2) * (i / 8); pts.push([HALF_W - 0.95 * (1 - Math.cos(a)), 2.9 + (ROOF - 2.9) * Math.sin(a)]); }
-  for (let i = 7; i >= 0; i--) { const a = (Math.PI / 2) * (i / 8); pts.push([-(HALF_W - 0.95 * (1 - Math.cos(a))), 2.9 + (ROOF - 2.9) * Math.sin(a)]); }
-  pts.push([-HALF_W, FLOOR + 0.25]);
-  return pts;
-}
-
-function bodyGeometry(len) {
-  const pts = profilePoints(); const sh = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
-  const g = new THREE.ExtrudeGeometry(sh, { depth: len, bevelEnabled: false, curveSegments: 4 });
-  g.translate(0, 0, -len / 2); return g;
-}
-
-/** Lofted nose: rings of the profile that taper and rake backwards toward the tip (-z is forward). */
-function noseGeometry() {
-  const pts = profilePoints(); const K = 10, M = pts.length;
-  const pos = [], idx = [], col = [];
-  for (let k = 0; k <= K; k++) {
-    const t = k / K;
-    for (let j = 0; j < M; j++) {
-      let [x, y] = pts[j]; const hi = Math.max(0, y - FLOOR) / (ROOF - FLOOR);
-      const sx = 1 - 0.42 * Math.pow(t, 2.1), sy = 1 - 0.34 * Math.pow(t, 1.5) * hi;
-      const yy = FLOOR + (y - FLOOR) * (1 - 0.3 * Math.pow(t, 1.6) * hi) ;
-      const z = -t * NOSE + hi * 1.6 * Math.pow(t, 1.3);  // windscreen rake: upper points sit further back
-      pos.push(x * sx, yy - (1 - sy) * 0.0, z);
-      // windscreen: dark glass band on the upper front, white elsewhere (soft-edged by interpolation)
-      const glassy = t > 0.22 && y > 2.3 && y < 3.5 ? 1 : 0;
-      col.push(glassy ? 0.03 : 1, glassy ? 0.04 : 1, glassy ? 0.05 : 1);
-    }
-  }
-  for (let k = 0; k < K; k++) for (let j = 0; j < M; j++) {
-    const a = k * M + j, b = k * M + (j + 1) % M, c = (k + 1) * M + j, d = (k + 1) * M + (j + 1) % M;
-    idx.push(a, c, b, b, c, d);
-  }
-  // front cap
-  const cIdx = pos.length / 3; let cx = 0, cy = 0, cz = 0;
-  for (let j = 0; j < M; j++) { const i = (K * M + j) * 3; cx += pos[i]; cy += pos[i + 1]; cz += pos[i + 2]; }
-  pos.push(cx / M, cy / M, cz / M / 1); col.push(0.03, 0.04, 0.05);
-  for (let j = 0; j < M; j++) idx.push(cIdx, K * M + (j + 1) % M, K * M + j);
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx); g.computeVertexNormals();
-  return g;
-}
-
+/** An Indian Railways consist: one locomotive + N instanced coaches, drawn with a handful of draw calls. */
 export class TrainModel {
-  constructor(scene, route, unit) {
-    this.scene = scene; this.route = route; this.unit = unit;
+  constructor(scene, route, unit, { lateral = 0, dir = 1, tail = true, beam = false } = {}) {
+    this.scene = scene; this.route = route; this.unit = unit; this.lateral = lateral; this.dir = dir;
+    const loco = getLocoAsset(unit.loco), coach = getCoachAsset(unit.coach.id), bog = getBogieAssets();
+    this.Ll = loco.length; this.Lc = coach.length; this.n = unit.cars;
     this.group = new THREE.Group(); scene.add(this.group);
-    const paint = new THREE.MeshPhysicalMaterial({ color: 0xeef0f3, roughness: 0.32, metalness: 0.25, clearcoat: 0.8, clearcoatRoughness: 0.2 });
-    const nosePaint = paint.clone(); nosePaint.vertexColors = true;
-    const dark = new THREE.MeshStandardMaterial({ color: 0x23272d, roughness: 0.7, metalness: 0.3 });
-    const glass = new THREE.MeshPhysicalMaterial({ color: 0x0b1016, roughness: 0.06, metalness: 0.9, clearcoat: 1 });
-    const stripe = new THREE.MeshStandardMaterial({ color: 0x1457b0, roughness: 0.4, metalness: 0.2, side: THREE.DoubleSide });
-    const door = new THREE.MeshStandardMaterial({ color: 0xc4c8cf, roughness: 0.5, metalness: 0.4, side: THREE.DoubleSide });
-    const roofMat = new THREE.MeshStandardMaterial({ color: 0x9aa1aa, roughness: 0.6, metalness: 0.4 });
-    const wheelMat = new THREE.MeshStandardMaterial({ color: 0x666b72, roughness: 0.4, metalness: 0.9 });
-    const bogieMat = new THREE.MeshStandardMaterial({ color: 0x1e2126, roughness: 0.6, metalness: 0.6 });
-    this.cars = []; this.wheels = [];
-    const nCars = unit.cars;
-    const midBody = bodyGeometry(BODY_LEN), endBody = bodyGeometry(BODY_LEN - NOSE), nose = noseGeometry();
-    const wheelGeo = new THREE.CylinderGeometry(0.46, 0.46, 0.12, 20); wheelGeo.rotateZ(Math.PI / 2);
-    const axleGeo = new THREE.CylinderGeometry(0.07, 0.07, 1.9, 8); axleGeo.rotateZ(Math.PI / 2);
-    const bogieGeo = new THREE.BoxGeometry(2.0, 0.28, 2.6);
-    const glowTex = glowTexture();
-    this.headlights = [];
-
-    for (let i = 0; i < nCars; i++) {
-      const car = new THREE.Group(); const end = i === 0 ? 'front' : i === nCars - 1 ? 'rear' : null;
-      const blen = end ? BODY_LEN - NOSE : BODY_LEN;
-      const body = new THREE.Mesh(end ? endBody : midBody, paint); body.castShadow = true; body.receiveShadow = true;
-      if (end) body.position.z = (end === 'front' ? 1 : -1) * NOSE / 2; // body spans the rest of the car
-      car.add(body);
-      // livery pieces on both sides
-      for (const side of [-1, 1]) {
-        const zc = end ? (end === 'front' ? NOSE / 2 : -NOSE / 2) : 0;
-        const win = new THREE.Mesh(new THREE.PlaneGeometry(blen - 2.2, 0.95), glass); win.position.set(side * (HALF_W + 0.01), 2.4, zc); win.rotation.y = side * Math.PI / 2; car.add(win);
-        const st = new THREE.Mesh(new THREE.PlaneGeometry(blen - 0.4, 0.28), stripe); st.position.set(side * (HALF_W + 0.012), 1.5, zc); st.rotation.y = side * Math.PI / 2; car.add(st);
-        for (const dz of [-blen * 0.27, blen * 0.27]) {
-          const d = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 2.05), door); d.position.set(side * (HALF_W + 0.014), 1.55, zc + dz); d.rotation.y = side * Math.PI / 2; car.add(d);
-          const dw = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.0), glass); dw.position.set(side * (HALF_W + 0.02), 2.2, zc + dz); dw.rotation.y = side * Math.PI / 2; car.add(dw);
-        }
-      }
-      // skirt + roof equipment
-      const skirt = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.55, blen - 1.0), dark); skirt.position.set(0, 0.42, end ? (end === 'front' ? NOSE / 2 : -NOSE / 2) : 0); car.add(skirt);
-      const roofBox = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.28, 3.2), roofMat); roofBox.position.set(0, ROOF + 0.1, end ? 0 : 2); car.add(roofBox);
-      if (end) {
-        const front = end === 'front';
-        // Nose: its geometry is authored pointing to -z. The car body spans [-BODY_LEN/2, BODY_LEN/2]; the nose
-        // occupies the outer NOSE metres of the car, so it is attached to the end of the shortened body.
-        const dir = front ? -1 : 1;                       // outward direction along z
-        const n = new THREE.Mesh(nose, nosePaint); n.castShadow = true;
-        n.position.z = front ? -BODY_LEN / 2 + NOSE : BODY_LEN / 2 - NOSE;
-        n.rotation.y = front ? 0 : Math.PI;
-        car.add(n);
-        // Lights (white at the front, red at the rear)
-        for (const sx of [-0.85, 0.85]) {
-          const col = front ? 0xfff3d6 : 0xff2a1a;
-          const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 8), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: col, emissiveIntensity: front ? 0.6 : 1.2 }));
-          lamp.position.set(sx * 0.82, 1.05, dir * (BODY_LEN / 2 - 0.55));
-          lamp.userData.front = front; car.add(lamp); this.headlights.push(lamp);
-        }
-        if (front) {
-          // the beam lives at the scene root so it still lights the track when the train mesh is hidden (cab view)
-          this.beam = new THREE.SpotLight(0xfff0d8, 0, 320, 0.42, 0.6, 1.2); this.beamTarget = new THREE.Object3D();
-          scene.add(this.beam); scene.add(this.beamTarget); this.beam.target = this.beamTarget;
-        }
-      }
-      // pantograph on the 2nd and 6th car
-      if (i === 1 || i === Math.min(5, nCars - 2)) car.add(this._pantograph(roofMat));
-      // bogies
-      for (const bz of [-6.6, 6.6]) {
-        const bg = new THREE.Group(); bg.position.set(0, 0.46, bz);
-        const frame = new THREE.Mesh(bogieGeo, bogieMat); bg.add(frame);
-        for (const az of [-0.95, 0.95]) {
-          const ax = new THREE.Mesh(axleGeo, wheelMat); ax.position.z = az; bg.add(ax);
-          for (const wx of [-0.7175, 0.7175]) { const w = new THREE.Mesh(wheelGeo, wheelMat); w.position.set(wx, 0, az); w.add(new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.5, 0.06), bogieMat)); bg.add(w); this.wheels.push(w); }
-        }
-        car.add(bg);
-      }
-      car.userData.index = i; this.group.add(car); this.cars.push(car);
+    this.locoMesh = new THREE.Mesh(loco.geo, loco.mat); this.locoMesh.frustumCulled = false; this.locoMesh.castShadow = true; this.group.add(this.locoMesh);
+    this.coaches = new THREE.InstancedMesh(coach.geo, coach.mat, this.n); this.coaches.frustumCulled = false; this.coaches.castShadow = true; this.group.add(this.coaches);
+    this.cBog = new THREE.InstancedMesh(bog.coach, bog.mat, this.n * 2); this.cBog.frustumCulled = false; this.group.add(this.cBog);
+    this.lBog = new THREE.InstancedMesh(bog.loco, bog.mat, 2); this.lBog.frustumCulled = false; this.group.add(this.lBog);
+    this.coachMat = coach.mat;
+    // headlight (front of the loco) and marker lamps; tail lamps on the last coach
+    this.lampMat = new THREE.MeshBasicMaterial({ color: 0xfff2d0 });
+    const H = loco.height, zf = -this.Ll / 2 + 0.55 * ((H - 0.45) - 0.7) / (H - 0.9) - 0.03;
+    const lamp = new THREE.Mesh(new THREE.CircleGeometry(0.17, 14), this.lampMat); lamp.position.set(0, H - 0.45, zf); lamp.rotation.y = Math.PI; this.locoMesh.add(lamp);
+    for (const x of [-1.1, 1.1]) { const m = new THREE.Mesh(new THREE.CircleGeometry(0.09, 10), this.lampMat); m.position.set(x, 1.15, -this.Ll / 2 - 0.0); m.rotation.y = Math.PI; this.locoMesh.add(m); }
+    this.tailMat = new THREE.MeshBasicMaterial({ color: 0xaa1510 });
+    if (tail) { this.tails = [-0.9, 0.9].map((x) => { const m = new THREE.Mesh(new THREE.CircleGeometry(0.11, 10), this.tailMat); m.position.set(x, 1.1, this.Lc / 2 + 0.58); this.group.add(m); return m; }); }
+    if (beam) {   // headlight beam lives at the scene root so it still lights the track when the mesh is hidden (cab view)
+      this.beam = new THREE.SpotLight(0xfff0d8, 0, 340, 0.45, 0.65, 1.2); this.beamTarget = new THREE.Object3D(); scene.add(this.beam); scene.add(this.beamTarget); this.beam.target = this.beamTarget;
     }
+    this.length = unit.length; this._a = {}; this._b = {};
   }
 
-  _pantograph(mat) {
-    const g = new THREE.Group(); g.position.set(0, ROOF + 0.2, -1.5);
-    const base = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.12, 1.7), mat); g.add(base);
-    const arm = (rotZ, y, h) => { const a = new THREE.Mesh(new THREE.BoxGeometry(0.06, h, 0.06), mat); a.position.set(0, y, 0); a.rotation.x = rotZ; return a; };
-    const a1 = arm(0.42, 0.75, 1.7), a2 = arm(-0.42, 1.55, 1.7); a1.position.z = 0.3; a2.position.z = 0.3; g.add(a1, a2);
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.05, 0.12), mat); bar.position.set(0, 1.28, 0.0); bar.position.y = 1.5; g.add(bar);
-    return g;
+  /** Orient `obj`/instance between two track points; returns the matrix. */
+  _pose(sCenter, half, lift = 0) {
+    const R = this.route, d = this.dir, a = frameAt(R, sCenter + d * half, this.lateral, 0, this._a), b = frameAt(R, sCenter - d * half, this.lateral, 0, this._b);
+    const dx = a.x - b.x, dz = a.z - b.z, dy = a.y - b.y, hd = Math.hypot(dx, dz) || 1, bank = a.p.bank;
+    dummy.position.set((a.x + b.x) / 2, (a.y + b.y) / 2 + lift, (a.z + b.z) / 2);
+    dummy.rotation.set(Math.atan2(dy, hd), Math.atan2(-dx, -dz), -d * bank * 0.9, 'YXZ'); dummy.scale.set(1, 1, 1); dummy.updateMatrix();
+    return dummy.matrix;
   }
 
-  /** Place each car by its bogie positions on the curved track. sFront: front of the lead car. */
-  update(sFront, night, tunnelFactor, vel) {
-    const R = this.route; const tmpA = {}, tmpB = {};
-    for (let i = 0; i < this.cars.length; i++) {
-      const sc = sFront - (i + 0.5) * CAR_LEN;
-      const a = frameAt(R, sc + 6.6, 0, 0, tmpA), b = frameAt(R, sc - 6.6, 0, 0, tmpB);
-      const dx = a.x - b.x, dz = a.z - b.z, dy = a.y - b.y; const hd = Math.hypot(dx, dz) || 1;
-      const car = this.cars[i]; const p = R.at(sc);
-      car.position.set((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
-      car.rotation.set(Math.atan2(dy, hd), Math.atan2(-dx, -dz), -p.bank * 0.9, 'YXZ');
+  /** sFront: chainage of the FRONT of the locomotive. */
+  update(sFront, night, tunnel) {
+    const d = this.dir; let off = this.Ll / 2;
+    const m = this._pose(sFront - d * off, 5.4); this.locoMesh.matrixAutoUpdate = false; this.locoMesh.matrix.copy(m); this.locoMesh.matrixWorldNeedsUpdate = true;
+    // locomotive bogies sit under each end bogie centre
+    this.lBog.setMatrixAt(0, this._pose(sFront - d * (off - 5.4), 1.0)); this.lBog.setMatrixAt(1, this._pose(sFront - d * (off + 5.4), 1.0)); this.lBog.instanceMatrix.needsUpdate = true;
+    off = this.Ll + GAP;
+    for (let i = 0; i < this.n; i++) {
+      const c = sFront - d * (off + this.Lc / 2); const pitch = this.Lc * 0.32;
+      this.coaches.setMatrixAt(i, this._pose(c, pitch));
+      this.cBog.setMatrixAt(i * 2, this._pose(c - d * -pitch, 1.0)); this.cBog.setMatrixAt(i * 2 + 1, this._pose(c - d * pitch, 1.0));
+      off += this.Lc + GAP;
     }
-    const on = Math.max(night, tunnelFactor);
+    this.coaches.instanceMatrix.needsUpdate = true; this.cBog.instanceMatrix.needsUpdate = true;
+    if (this.tails) { const lastC = sFront - d * (this.Ll + GAP + (this.n - 1) * (this.Lc + GAP) + this.Lc / 2); const mt = this._pose(lastC, this.Lc * 0.32); this.tails.forEach((t) => { t.matrixAutoUpdate = false; t.matrix.copy(mt).multiply(new THREE.Matrix4().makeTranslation(t.position.x, t.position.y, t.position.z)); t.matrixWorldNeedsUpdate = true; }); }
+    // lights: the headlight is always on in India; brighter at night / in tunnels
+    const on = Math.max(night, tunnel);
+    this.lampMat.color.setScalar(0.9 + on * 2.2).multiply(new THREE.Color(1, 0.95, 0.82));
+    this.tailMat.color.setRGB(0.5 + on * 1.5, 0.05, 0.03);
+    this.coachMat.emissiveIntensity = 0.04 + on * 1.4;
     if (this.beam) {
-      const f = frameAt(R, sFront + 1.5, 0, 1.5, tmpA), g = frameAt(R, sFront + 70, 0, 0.6, tmpB);
-      this.beam.position.set(f.x, f.y, f.z); this.beamTarget.position.set(g.x, g.y, g.z); this.beamTarget.updateMatrixWorld();
-      this.beam.intensity = on * 520;
+      const R = this.route, f = frameAt(R, sFront + d * 1.5, this.lateral, 1.6, this._a), g = frameAt(R, sFront + d * 80, this.lateral, 0.6, this._b);
+      this.beam.position.set(f.x, f.y, f.z); this.beamTarget.position.set(g.x, g.y, g.z); this.beamTarget.updateMatrixWorld(); this.beam.intensity = on * 520; this.beam.visible = on > 0.02;
     }
-    for (const l of this.headlights) l.material.emissiveIntensity = l.userData.front ? 0.5 + on * 6 : 1.0 + on * 3;
   }
 
-  spin(dist) { const r = dist / 0.46; for (const w of this.wheels) w.rotation.x -= r; }
+  setVisible(v) { this.group.visible = v; }
+  dispose() { this.scene.remove(this.group); this.coaches.dispose(); this.cBog.dispose(); this.lBog.dispose(); if (this.beam) { this.scene.remove(this.beam); this.scene.remove(this.beamTarget); } }
+  spin() {}
 }

@@ -45,7 +45,8 @@ void main(){
 }`;
 
 export class Environment {
-  constructor(renderer, scene, camera, quality, weather, startHour) {
+  constructor(renderer, scene, camera, quality, weather, startHour, haze = null) {
+    this.haze = haze;
     this.renderer = renderer; this.scene = scene; this.camera = camera; this.quality = quality;
     this.weather = weather; this.look = WEATHER_LOOK[weather] || WEATHER_LOOK.clear;
     this.hourOffset = startHour;
@@ -156,6 +157,10 @@ export class Environment {
     const lum = (c) => c[0] * 0.3 + c[1] * 0.59 + c[2] * 0.11;
     const gz = lum(zen) * 1.15, gh = lum(hor) * 1.1;
     zen = mix3(zen, [gz, gz, gz * 1.04], grey); hor = mix3(hor, [gh, gh, gh * 1.03], grey);
+    if (this.haze) {                                                              // warm dust haze near the horizon (stronger in clear weather)
+      const hz = this.haze.tint.map((v) => Math.pow(v, 2.2) * (0.12 + 0.88 * tDay)), amt = 0.55 * (1 - grey);
+      hor = mix3(hor, hz, amt); zen = mix3(zen, mix3(zen, hz, 0.35), amt);
+    }
     this.skyUniforms.zenith.value.set(...zen); this.skyUniforms.horizon.value.set(...hor);
     this.skyUniforms.warmAmt.value = warmAmt; this.skyUniforms.sunVis.value = sstep(-4, 1, eDeg);
     const sunCol = mix3([1.0, 0.45, 0.16], [1.0, 0.95, 0.86], sstep(0, 22, eDeg));
@@ -167,7 +172,7 @@ export class Environment {
     const insideC = [0.012, 0.012, 0.014];
     const fc = mix3(fogC, insideC, this.tunnel);
     this.scene.fog.color.setRGB(...fc);
-    this.scene.fog.far = this.look.fog * (1 - this.tunnel) + 180 * this.tunnel;
+    this.scene.fog.far = Math.min(this.look.fog, this.haze && this.look.grey < 0.5 ? this.haze.far : 1e9) * (1 - this.tunnel) + 180 * this.tunnel;
     this.scene.fog.near = 40 * (1 - this.tunnel) + 20 * this.tunnel + (grey > 0.8 ? -20 : 0);
     if (this.weather === 'fog') this.scene.fog.near = 5;
 

@@ -118,7 +118,17 @@ export class AudioEngine {
       case 'finished': [523, 659, 784, 1047].forEach((f, i) => this._tone(f, 0.9, 0.16, 'triangle', i * 0.16)); break;
       case 'failed': [392, 330, 262].forEach((f, i) => this._tone(f, 0.9, 0.18, 'sawtooth', i * 0.25)); break;
       case 'reset': this._tone(880, 0.2, 0.1, 'sine'); break;
+      case 'pass': this._whoosh(); break;
     }
+  }
+
+  /** Opposing train passing: a swelling band of wind noise with a few rail clacks. */
+  _whoosh() {
+    const ctx = this.ctx, s = ctx.createBufferSource(); s.buffer = this._noiseBuffer(3, 'pink'); const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 520; f.Q.value = 0.6;
+    const g = ctx.createGain(), t0 = ctx.currentTime; g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(0.9, t0 + 0.35); g.gain.exponentialRampToValueAtTime(0.001, t0 + 2.4);
+    f.frequency.setValueAtTime(380, t0); f.frequency.linearRampToValueAtTime(900, t0 + 0.5); f.frequency.exponentialRampToValueAtTime(300, t0 + 2.4);
+    s.connect(f); f.connect(g); g.connect(this.bus); s.start(t0); s.stop(t0 + 2.6);
+    for (let i = 0; i < 10; i++) setTimeout(() => this.ctx && this._click(0.5, 0.9 + Math.random() * 0.3), 150 + i * 110);
   }
 
   _speak(text) {

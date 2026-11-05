@@ -1,6 +1,7 @@
-import { buildRoute } from './sim/route.js';
+import { buildRoute, PRESETS } from './sim/route.js';
+import { makeUnit } from './sim/consist.js';
 import { Game } from './sim/game.js';
-import { View } from './render/view.js';
+import { View, detectQuality } from './render/view.js';
 import { AudioEngine } from './audio/audio.js';
 import { Hud } from './ui/hud.js';
 import { Controls } from './ui/input.js';
@@ -26,13 +27,15 @@ async function startJourney() {
   audio.volume = s.volume; audio.voice = s.voice; audio.init();
   const progress = screens.loading('Building the line…');
   await new Promise((r) => setTimeout(r, 30));
+  if (!PRESETS[s.route]) s.route = 'bengaluru_mysuru';
   const route = buildRoute(s.route);
-  const game = new Game(route, { weather: s.weather, startHour: s.hour, alerter: s.alerter, seed: (Date.now() / 1000) | 0 });
+  const quality = s.quality === 'auto' || !s.quality ? detectQuality() : s.quality;
+  const game = new Game(route, { weather: s.weather, startHour: s.hour, alerter: s.alerter, seed: (Date.now() / 1000) | 0, consist: s.consist, from: s.from, to: s.to ?? undefined, pattern: s.pattern });
   if (params.get('s')) game.placeAt(parseFloat(params.get('s')), parseFloat(params.get('v') || 0));
   teardown();
   // a fresh canvas per journey: a lost WebGL context cannot be reused
   const oldCanvas = document.getElementById('scene'); const canvas = oldCanvas.cloneNode(false); oldCanvas.replaceWith(canvas);
-  const view = new View(canvas, route, { quality: s.quality, weather: game.weather, startHour: s.hour });
+  const view = new View(canvas, game.route, { quality, weather: game.weather, startHour: s.hour, unit: game.unit, seed: game.opts.seed });
   view.setMode(params.get('cam') || 'cab');
   await view.preload(game.train.s, (a, b) => progress(a / Math.max(1, b)));
   const hooks = {
@@ -72,6 +75,7 @@ function loop(now) {
   a.fpsAcc += dt; a.fpsN++; if (a.fpsAcc > 0.5) { a.ctl.fps = a.fpsN / a.fpsAcc; a.fpsAcc = 0; a.fpsN = 0; }
   if (!paused) {
     a.ctl.update(dt); a.game.update(dt);
+    if (a.view.traffic.passEvent) audio.event({ type: 'pass' });
     for (const e of a.game.drainEvents()) { audio.event(e); if (e.type === 'finished' || e.type === 'failed') onEnd(); }
     audio.update(a.game, dt, { tunnel: a.view.env.tunnel, weather: a.game.weather, cab: a.view.mode === 'cab' });
     glass.update(dt, Math.abs(a.game.train.v));
@@ -99,5 +103,9 @@ function showMenu() {
 }
 
 window.addEventListener('beforeunload', () => storage.save(data));
-if (params.get('auto')) { Object.assign(data.settings, { route: params.get('route') || 'coastal', weather: params.get('weather') || 'clear', quality: params.get('quality') || 'medium', hour: params.get('hour') ? parseFloat(params.get('hour')) : null }); if (data.settings.hour == null) data.settings.hour = 17.5; startJourney(); }
+if (params.get('auto')) {
+  Object.assign(data.settings, { route: params.get('route') || 'bengaluru_mysuru', weather: params.get('weather') || 'clear', quality: params.get('quality') || 'medium', hour: params.get('hour') ? parseFloat(params.get('hour')) : null,
+    consist: params.get('consist') || 'shatabdi', from: params.get('from') ? parseInt(params.get('from')) : 0, to: params.get('to') ? parseInt(params.get('to')) : null, pattern: params.get('pattern') || 'express' });
+  if (data.settings.hour == null) data.settings.hour = (PRESETS[data.settings.route] || PRESETS.bengaluru_mysuru).defaultTime; startJourney();
+}
 else showMenu();

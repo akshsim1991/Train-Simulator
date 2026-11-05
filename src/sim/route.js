@@ -18,7 +18,7 @@ export const PRESETS = {
   bengaluru_mysuru: {
     id: 'bengaluru_mysuru', name: 'Bengaluru – Mysuru', region: 'karnataka', blurb: 'Electrified double line across the Deccan plateau: granite hills, paddy, coconut groves, the Shimsha and Cauvery rivers.',
     difficulty: 2, seed: 11, lineSpeed: 110, defaultTime: 9.0, maxGrade: 0.012, maxCurv: 1 / 600, meander: 0.9,
-    terrain: { base: 760, roll: 18, rollScale: 2200, hill: 95, hillScale: 2600 },
+    terrain: { base: 760, roll: 18, rollScale: 2200, hill: 85, hillScale: 2600 },
     haze: { far: 2000, tint: [0.80, 0.74, 0.62] }, snow: false, tsrCount: 3,
     stations: [
       { km: 0, name: 'Bengaluru City', short: 'SBC', local: 'ಬೆಂಗಳೂರು', lat: 12.978, lon: 77.572, express: true, major: true },
@@ -197,6 +197,26 @@ export function buildRoute(preset) {
   }
   const limits = zones.map((z0) => ({ s: z0.s, kmh: z0.kmh, tsr: tsrs.some((q) => Math.abs(q.s0 - z0.s) < 8 && z0.kmh <= 50) }));
 
+  // ---- corridor: compress terrain relief near the line (real railways skirt hills instead of trenching through them) -----
+  const CG = 160, cgx = new Map();
+  for (let i = 0; i < N; i += 10) {                                               // splat the centreline into a coarse grid: nearest distance + track level
+    const gx0 = Math.floor((x[i] - 700) / CG), gx1 = Math.floor((x[i] + 700) / CG), gz0 = Math.floor((z[i] - 700) / CG), gz1 = Math.floor((z[i] + 700) / CG);
+    for (let gx = gx0; gx <= gx1; gx++) for (let gz = gz0; gz <= gz1; gz++) {
+      const dx = (gx + 0.5) * CG - x[i], dz = (gz + 0.5) * CG - z[i], d = Math.hypot(dx, dz); const key = gx * 100003 + gz; const c = cgx.get(key);
+      if (!c || d < c.d) cgx.set(key, { d, y: h[i] });
+    }
+  }
+  const corridor = (px, pz) => {                                                  // bilinear lookup of {d, y}; null when outside the corridor
+    const fx = px / CG - 0.5, fz = pz / CG - 0.5, ix = Math.floor(fx), iz = Math.floor(fz), ux = fx - ix, uz = fz - iz; let d = 0, y = 0, wsum = 0;
+    for (const [dx, dz, w] of [[0, 0, (1 - ux) * (1 - uz)], [1, 0, ux * (1 - uz)], [0, 1, (1 - ux) * uz], [1, 1, ux * uz]]) { const c = cgx.get((ix + dx) * 100003 + (iz + dz)); if (!c) continue; d += c.d * w; y += c.y * w; wsum += w; }
+    return wsum < 0.5 ? null : { d: d / wsum, y: y / wsum };
+  };
+  const RELIEF = 0.3;                                                              // fraction of the natural relief kept right beside the line
+  const landscape = (px, pz) => {
+    const hh = naturalDry(px, pz), c = corridor(px, pz); if (!c) return hh;
+    const m = 1 - sstep(60, 560, c.d); return hh - (hh - c.y) * (1 - RELIEF) * m;
+  };
+
   // ---- rivers + bridges -----------------------------------------------------------------------------------------
   const rivers = (P.rivers || []).map((rv, i) => {
     const s = LEAD + rv.km * 1000; const f = frame(s);
@@ -211,7 +231,7 @@ export function buildRoute(preset) {
   }
   const riverV0 = (rv, u) => rv.amp * (Math.sin(u / rv.lam + rv.ph) - Math.sin(rv.ph));   // centreline passes exactly through the crossing
   const natural = (px, pz) => {
-    let hh = naturalDry(px, pz);
+    let hh = landscape(px, pz);
     for (const rv of rivers) {
       const dx = px - rv.px, dz = pz - rv.pz; const u = dx * rv.ax + dz * rv.az; if (Math.abs(u) > 2000) continue;
       const v = -dx * rv.az + dz * rv.ax; const d = Math.abs(v - riverV0(rv, u)); const reach = rv.width * 1.5 + rv.width * 0.5;
@@ -240,7 +260,7 @@ export function buildRoute(preset) {
 
   const route = {
     preset: P, id: P.id, name: P.name, length, N, DS, x, z, theta: th, curv: k, elev: h, grade, limits, tsrs, tunnels, bridges,
-    stations, stops: stations, signals, rivers, natural, naturalDry, region: P.region, haze: P.haze, snow: false,
+    stations, stops: stations, signals, rivers, natural, naturalDry, landscape, region: P.region, haze: P.haze, snow: false,
     seaLevel: -1e4, palette: P.region, left: true, doubleTrack: true, LEAD,
   };
   buildQuery(route);
@@ -288,8 +308,8 @@ function buildQuery(route) {
     const nat = route.natural(px, pz);
     const n = route.nearest(px, pz, 110); if (!n) return nat;
     const diff = nat - n.y;
-    // distance from the formation edge: left edge at -10.5 m, right edge at +15 m (second line + platform)
-    const edge = n.side > 0 ? 15.5 : 11.5, dist = Math.max(0, n.d - edge);
+    // formation (railway land) edges: 16 m left (platform + building), 18 m right (second line + island platform)
+    const edge = n.side > 0 ? 18 : 16, dist = Math.max(0, n.d - edge);
     const run = Math.max(8, Math.abs(diff) * 2.0);
     let wgt = n.d <= edge ? 1 : Math.max(0, 1 - dist / run); wgt = wgt * wgt * (3 - 2 * wgt);
     wgt *= (1 - bridgeness(route, n.s));

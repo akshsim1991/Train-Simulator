@@ -31,7 +31,7 @@ function resolveAppPath(urlStr) {
 function createWindow() {
   win = new BrowserWindow({
     width: 1440, height: 810, minWidth: 960, minHeight: 600,
-    backgroundColor: '#0a0e13', title: 'Train Simulator', show: false,
+    backgroundColor: '#0a0e13', title: 'Indian Rail Simulator', show: false,
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true, nodeIntegration: false, sandbox: true,
@@ -66,7 +66,7 @@ async function runSelfTest(w) {
     try {
       await new Promise((r) => setTimeout(r, 800));
       const menuOk = await w.webContents.executeJavaScript(`document.querySelectorAll('.rcard').length`);
-      if (menuOk !== 3) return fail('menu did not render (cards=' + menuOk + ')');
+      if (menuOk !== 2) return fail('menu did not render (cards=' + menuOk + ')');
       await w.webContents.executeJavaScript(`document.querySelector('#go').click()`);
       await w.webContents.executeJavaScript(`new Promise((res, rej) => { const t0 = Date.now(); const i = setInterval(() => { if (window.__ready) { clearInterval(i); res(true); } else if (Date.now() - t0 > 170000) { clearInterval(i); rej('timeout'); } }, 250); })`);
       const info = await w.webContents.executeJavaScript(`(() => { const a = window.__debug.app; const gl = a.view.renderer.getContext(); return { phase: a.game.phase, gl: gl.getParameter(gl.VERSION), vendor: (gl.getExtension('WEBGL_debug_renderer_info') ? gl.getParameter(gl.getExtension('WEBGL_debug_renderer_info').UNMASKED_RENDERER_WEBGL) : 'n/a'), audio: typeof AudioContext, storage: (() => { try { localStorage.setItem('t', '1'); return localStorage.getItem('t') === '1'; } catch (e) { return false; } })() }; })()`);

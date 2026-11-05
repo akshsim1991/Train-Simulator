@@ -13,9 +13,8 @@ const LODS = [
 // Authored in sRGB, converted to linear at load (vertex colours are interpreted as linear).
 const lin = (c) => c.map((v) => Math.pow(v, 2.2));
 const PALETTES = {
-  coast: { low: lin([0.52, 0.60, 0.28]), high: lin([0.38, 0.50, 0.24]), rock: lin([0.50, 0.47, 0.43]), sand: lin([0.80, 0.74, 0.56]), snow: null, tree: 'broad' },
-  valley: { low: lin([0.34, 0.50, 0.20]), high: lin([0.24, 0.38, 0.17]), rock: lin([0.46, 0.43, 0.38]), sand: lin([0.58, 0.52, 0.36]), snow: null, tree: 'mixed' },
-  alpine: { low: lin([0.27, 0.40, 0.19]), high: lin([0.40, 0.41, 0.32]), rock: lin([0.50, 0.49, 0.48]), sand: lin([0.45, 0.43, 0.40]), snow: lin([0.95, 0.97, 1.0]), tree: 'conifer' },
+  karnataka: { low: lin([0.38, 0.47, 0.22]), high: lin([0.42, 0.45, 0.24]), rock: lin([0.50, 0.42, 0.34]), soil: lin([0.58, 0.34, 0.22]), fieldA: lin([0.36, 0.50, 0.20]), fieldB: lin([0.62, 0.52, 0.30]), trees: ['palm', 'broad', 'broad'], density: 0.5 },
+  gangetic: { low: lin([0.52, 0.55, 0.26]), high: lin([0.55, 0.52, 0.30]), rock: lin([0.66, 0.58, 0.45]), soil: lin([0.70, 0.60, 0.42]), fieldA: lin([0.40, 0.55, 0.22]), fieldB: lin([0.68, 0.62, 0.28]), trees: ['broad'], density: 0.64 },
 };
 
 function treeGeometries() {
@@ -33,14 +32,18 @@ function treeGeometries() {
   const conifer = mk([[trunk, [0.28, 0.2, 0.13], 1.5], [new THREE.ConeGeometry(2.6, 6, 6), [0.95, 0.95, 0.95], 5.5],
     [new THREE.ConeGeometry(1.7, 5, 6), [0.95, 0.95, 0.95], 9]]);
   const broad = mk([[trunk, [0.3, 0.22, 0.14], 1.5], [new THREE.IcosahedronGeometry(3.0, 0), [0.95, 0.95, 0.95], 5.6]]);
-  return { conifer, broad };
+  // coconut palm: tall slender trunk with a crown of drooping fronds
+  const ptrunk = new THREE.CylinderGeometry(0.16, 0.28, 9.5, 4);
+  const fronds = []; for (let i = 0; i < 7; i++) { const f = new THREE.BoxGeometry(3.4, 0.05, 0.6); f.translate(1.7, 0, 0); f.rotateZ(-0.38); f.rotateY((i / 7) * Math.PI * 2 + 0.3); fronds.push([f, [0.95, 0.95, 0.95], 9.5]); }
+  const palm = mk([[ptrunk, [0.42, 0.34, 0.26], 4.75], ...fronds]);
+  return { conifer, broad, palm };
 }
 
 export class Terrain {
   constructor(scene, route, quality, weather = 'clear') {
     this.scene = scene; this.route = route; this.quality = quality;
     this.snowAmount = weather === 'snow' ? 0.9 : 0; this.wetAmount = weather === 'rain' ? 1 : 0;
-    this.pal = PALETTES[route.palette] || PALETTES.valley;
+    this.pal = PALETTES[route.palette] || PALETTES.karnataka;
     this.tiles = new Map();
     this.queue = [];
     this.group = new THREE.Group(); scene.add(this.group);
@@ -60,37 +63,25 @@ export class Terrain {
     const geo = new THREE.PlaneGeometry(8000, 8000, 1, 1); geo.rotateX(-Math.PI / 2);
     const nm = waterNormalTexture(); nm.repeat.set(120, 120);
     const mat = new THREE.MeshPhongMaterial({ color: 0x2a6f8f, shininess: 90, specular: 0x6f8fa8, normalMap: nm, normalScale: new THREE.Vector2(0.22, 0.22) });
-    const m = new THREE.Mesh(geo, mat); m.position.y = this.route.seaLevel; m.receiveShadow = false; m.renderOrder = 1;
+    const m = new THREE.Mesh(geo, mat); m.visible = this.route.seaLevel > -1000; m.position.y = this.route.seaLevel; m.receiveShadow = false; m.renderOrder = 1;
     this.scene.add(m); this.waterNormal = nm; return m;
   }
 
   heightAt(x, z) { return this.route.terrainHeight(x, z); }
 
   _color(h, slope, x, z, out) {
-    const P = this.pal, R = this.route, sea = R.seaLevel;
-    const n = fbm(x / 60, z / 60, 3, 3);
-    let c = [0, 0, 0];
-    const t = Math.max(0, Math.min(1, (h - sea) / (R.preset.amp * 1.4 + 40)));
-    for (let i = 0; i < 3; i++) c[i] = P.low[i] * (1 - t) + P.high[i] * t;
-    const k = 0.78 + n * 0.44; c = c.map((v) => v * k);
-    if (!P.snow) { // patchwork of fields: darker pasture / paler hay
-      const f = fbm(x / 240, z / 240, 31, 2), hay = Math.max(0, Math.min(1, (f - 0.54) / 0.03)), dark = Math.max(0, Math.min(1, (0.36 - f) / 0.03));
-      const hayC = [0.50, 0.46, 0.18].map((v) => Math.pow(v, 2.2));
-      for (let i = 0; i < 3; i++) c[i] = c[i] * (1 - hay * 0.8) * (1 - dark * 0.3) + hayC[i] * hay * 0.8;
-    }
-    const rock = Math.max(0, Math.min(1, (slope - 0.55) / 0.5)); // slope in rise/run
-    for (let i = 0; i < 3; i++) c[i] = c[i] * (1 - rock) + P.rock[i] * rock * (0.85 + n * 0.3);
-    const shore = Math.max(0, 1 - (h - sea) / 3.5);
-    if (shore > 0) for (let i = 0; i < 3; i++) c[i] = c[i] * (1 - shore) + P.sand[i] * shore;
-    if (P.snow) {
-      const snowLine = R.preset.minTrack + R.preset.amp * 0.75 + (n - 0.5) * 80;
-      const sn = Math.max(0, Math.min(1, (h - snowLine) / 40)) * (1 - rock * 0.55);
-      for (let i = 0; i < 3; i++) c[i] = c[i] * (1 - sn) + P.snow[i] * sn;
-    }
-    if (this.snowAmount > 0) {
-      const white = [0.86, 0.9, 0.96], k = this.snowAmount * (1 - rock * 0.55) * (0.85 + n * 0.3);
-      for (let i = 0; i < 3; i++) c[i] = c[i] * (1 - k) + white[i] * k;
-    }
+    const P = this.pal, T = this.route.preset.terrain;
+    const n = fbm(x / 60, z / 60, 3, 3), t = Math.max(0, Math.min(1, (h - T.base) / 160 + 0.4));
+    let c = [0, 0, 0]; for (let i = 0; i < 3; i++) c[i] = P.low[i] * (1 - t) + P.high[i] * t;
+    const k = 0.8 + n * 0.4; c = c.map((v) => v * k);
+    // patchwork of fields (paddy / harvested / mustard / wheat): hard-edged blobs on gentle slopes
+    const f = fbm(x / 210, z / 210, 31, 2), g = fbm(x / 520, z / 520, 17, 2);
+    const A = Math.max(0, Math.min(1, (f - 0.50) / 0.025)), B = Math.max(0, Math.min(1, (0.40 - f) / 0.025));
+    const flat = Math.max(0, 1 - slope * 5);
+    for (let i = 0; i < 3; i++) c[i] = c[i] * (1 - A * flat * 0.85 - B * flat * 0.85) + P.fieldA[i] * A * flat * 0.85 * (0.85 + g * 0.3) + P.fieldB[i] * B * flat * 0.85 * (0.85 + g * 0.3);
+    // exposed soil / granite on slopes
+    const rock = Math.max(0, Math.min(1, (slope - 0.22) / 0.4)), soil = Math.max(0, Math.min(1, (slope - 0.1) / 0.25)) * (1 - rock);
+    for (let i = 0; i < 3; i++) c[i] = c[i] * (1 - soil * 0.55 - rock) + P.soil[i] * soil * 0.55 + P.rock[i] * rock * (0.85 + n * 0.3);
     if (this.wetAmount > 0) for (let i = 0; i < 3; i++) c[i] *= 0.72;
     out[0] = c[0]; out[1] = c[1]; out[2] = c[2];
   }
@@ -151,34 +142,32 @@ export class Terrain {
     const R = this.route, x0 = tx * TILE, z0 = tz * TILE, pal = this.pal;
     const ts = this.quality.treeScale || 1; const spacing = (L.trees > 100 ? 8.5 : 13) / Math.sqrt(ts);
     const per = Math.floor(TILE / spacing);
-    const mats = { conifer: [], broad: [] };
-    const sea = R.seaLevel;
+    const mats = { conifer: [], broad: [], palm: [] };
     for (let j = 0; j < per; j++) for (let i = 0; i < per; i++) {
       const rx = hashRand(tx * 977 + i, tz * 613 + j, 1), rz = hashRand(tx * 977 + i, tz * 613 + j, 2);
       const x = x0 + (i + rx) * spacing, z = z0 + (j + rz) * spacing;
       const dens = fbm(x / 140, z / 140, 77, 3);
-      if (dens < 0.46 + (R.palette === 'coast' ? 0.14 : 0)) continue;
+      if (dens < pal.density) continue;
       if (hashRand(i + tx * 31, j + tz * 17, 3) > (dens - 0.3) * 1.6) continue;
       const n = R.nearest(x, z, 26); if (n && n.d < (n.y < R.terrainHeight(x, z) - 6 ? 14 : 11)) continue;   // keep clear of track & cuttings
       const fi = (x - x0) / step + 1, fj = (z - z0) / step + 1;
       const h = hgt[Math.min(W - 1, Math.round(fj)) * W + Math.min(W - 1, Math.round(fi))];
-      if (h < sea + 3) continue;
+      if (R.landscape(x, z) - h > 0.8) continue;                                   // river channel
       const slopeX = (hgt[Math.round(fj) * W + Math.min(W - 1, Math.round(fi) + 1)] - hgt[Math.round(fj) * W + Math.max(0, Math.round(fi) - 1)]) / (2 * step);
       if (Math.abs(slopeX) > 0.75) continue;
-      if (R.snow && h > R.preset.minTrack + R.preset.amp * 0.7) continue;
-      const kind = pal.tree === 'conifer' ? 'conifer' : pal.tree === 'broad' ? 'broad' : (fbm(x / 300, z / 300, 5, 2) > 0.5 ? 'conifer' : 'broad');
+      const kind = pal.trees[Math.floor(hashRand(i + tx * 3, j + tz * 7, 9) * pal.trees.length)];
       const sc = 0.7 + hashRand(i, j, tx * 5 + tz) * 0.9;
       const m = new THREE.Matrix4().compose(new THREE.Vector3(x, h - 0.3, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rx * 6.28, 0)), new THREE.Vector3(sc, sc * (0.9 + rz * 0.35), sc));
       mats[kind].push([m, rx]);
     }
-    for (const kind of ['conifer', 'broad']) {
+    for (const kind of ['conifer', 'broad', 'palm']) {
       const arr = mats[kind]; if (!arr.length) continue;
       const im = new THREE.InstancedMesh(this.treeGeo[kind], this.treeMat, arr.length);
       const col = new THREE.Color();
       arr.forEach(([m, r], k) => {
         im.setMatrixAt(k, m);
-        if (kind === 'conifer') col.setRGB(0.07 + r * 0.05, 0.20 + r * 0.08, 0.11 + r * 0.04, THREE.SRGBColorSpace); else col.setRGB(0.16 + r * 0.16, 0.30 + r * 0.12, 0.09 + r * 0.05, THREE.SRGBColorSpace);
-        if (R.snow || this.snowAmount > 0) col.lerp(new THREE.Color().setRGB(0.85, 0.9, 0.95, THREE.SRGBColorSpace), this.snowAmount > 0 ? 0.55 : 0.22);
+        if (kind === 'palm') col.setRGB(0.20 + r * 0.1, 0.42 + r * 0.12, 0.14 + r * 0.05, THREE.SRGBColorSpace); else if (kind === 'conifer') col.setRGB(0.07 + r * 0.05, 0.20 + r * 0.08, 0.11 + r * 0.04, THREE.SRGBColorSpace); else col.setRGB(0.16 + r * 0.16, 0.30 + r * 0.12, 0.09 + r * 0.05, THREE.SRGBColorSpace);
+        if (this.snowAmount > 0) col.lerp(new THREE.Color().setRGB(0.85, 0.9, 0.95, THREE.SRGBColorSpace), 0.55);
         im.setColorAt(k, col);
       });
       im.castShadow = false; im.frustumCulled = true; im.computeBoundingSphere();
@@ -222,7 +211,7 @@ export class Terrain {
 
   _dispose(t) {
     this.group.remove(t.group);
-    t.group.traverse((o) => { if (o.isInstancedMesh) o.dispose(); if (o.geometry && !(o.geometry === this.treeGeo.conifer || o.geometry === this.treeGeo.broad)) o.geometry.dispose(); });
+    t.group.traverse((o) => { if (o.isInstancedMesh) o.dispose(); if (o.geometry && !(o.geometry === this.treeGeo.conifer || o.geometry === this.treeGeo.broad || o.geometry === this.treeGeo.palm)) o.geometry.dispose(); });
   }
 
   /** Build everything near the focus synchronously (loading screen). */

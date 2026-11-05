@@ -16,7 +16,7 @@ await p.goto('http://localhost:8123/?' + query);
 try { if (query.includes('auto=1')) await p.waitForFunction(() => window.__ready, null, { timeout: 180000 }); } catch (e) { logs.push('not ready: ' + JSON.stringify(await p.evaluate(() => window.__loading))); }
 await p.waitForTimeout(Number(wait));
 if (script) { await p.evaluate(script); await p.waitForTimeout(Number(process.env.POST_WAIT || 2500)); }
-await p.evaluate(() => { window.__freeze = true; }); await p.waitForTimeout(1500);
+await p.evaluate(() => new Promise((r) => { window.__freeze = false; requestAnimationFrame(() => requestAnimationFrame(() => { window.__freeze = true; r(); })); })); await p.waitForTimeout(1200);
 const info = await p.evaluate(() => { const a = window.__debug && window.__debug.app; return a ? { s: a.game.train.s.toFixed(1), v: a.game.train.v.toFixed(2), tiles: a.view.terrain.tiles.size, calls: a.view.renderer.info.render.calls, tris: a.view.renderer.info.render.triangles, phase: a.game.phase } : null; });
 console.log(JSON.stringify(info)); console.log('PERF', JSON.stringify(await p.evaluate(() => window.__perf || null))); console.log(logs.slice(0, 12).join('\n'));
 await p.screenshot({ path: out, timeout: 120000 });
