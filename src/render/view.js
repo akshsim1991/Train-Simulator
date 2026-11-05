@@ -9,10 +9,11 @@ import { Cab } from './cab.js';
 import { UNIT } from '../sim/physics.js';
 import { fbm } from '../sim/noise.js';
 
+const dpr = () => (typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1);
 export const QUALITY = {
   low: { pixelRatio: 1, shadows: false, shadowMap: 1024, shadowRange: 70, radius: 1500, trees: false, bloom: false, clouds: 8, precip: true, catenary: false, msaa: 0 },
-  medium: { pixelRatio: 1, shadows: true, shadowMap: 2048, shadowRange: 90, radius: 2000, trees: true, bloom: true, clouds: 14, precip: true, catenary: true, msaa: 2 },
-  high: { pixelRatio: Math.min(2, (typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1)), shadows: true, shadowMap: 4096, shadowRange: 110, radius: 2500, trees: true, bloom: true, clouds: 22, precip: true, catenary: true, msaa: 4 },
+  medium: { pixelRatio: Math.min(1.5, dpr()), shadows: true, shadowMap: 2048, shadowRange: 90, radius: 2000, trees: true, bloom: true, clouds: 14, precip: true, catenary: true, msaa: 2 },
+  high: { pixelRatio: Math.min(2, dpr()), shadows: true, shadowMap: 4096, shadowRange: 110, radius: 2500, trees: true, bloom: true, clouds: 22, precip: true, catenary: true, msaa: 4 },
 };
 
 const GRADE_SHADER = {
@@ -117,13 +118,14 @@ export class View {
       target.set(f.x, f.y, f.z); lookAt = new THREE.Vector3(g.x, g.y, g.z);
     } else { // lineside TV camera
       if (this.lineside.s < 0 || sFront - this.lineside.s > 40 || this.lineside.s - sFront > 520) {
-        const ahead = 140 + Math.min(260, Math.abs(T.v) * 5); const ss = Math.min(R.length - 30, sFront + ahead);
+        const ahead = 60 + Math.min(160, Math.abs(T.v) * 2.2); const ss = Math.min(R.length - 30, sFront + ahead);
         this.lineside.s = ss; const side = (Math.floor(ss / 400) % 2) ? 1 : -1; this.lineside.side = side;
-        const f = frameAt(R, ss, side * (9 + (Math.floor(ss) % 5)), 0); const gy = Math.max(R.terrainHeight(f.x, f.z), f.y - 1) + 1.7;
-        this.lineside.pos = new THREE.Vector3(f.x, Math.min(gy, f.y + 4), f.z);
+        const f = frameAt(R, ss, side * (6.5 + (Math.floor(ss) % 4)), 0); const gy = Math.max(R.terrainHeight(f.x, f.z), f.y - 0.5) + 1.6;
+        this.lineside.pos = new THREE.Vector3(f.x, Math.min(gy, f.y + 3.2), f.z);
       }
-      target.copy(this.lineside.pos); const g = frameAt(R, sFront - 20, 0, 2); lookAt = new THREE.Vector3(g.x, g.y, g.z);
+      target.copy(this.lineside.pos); const aim = Math.max(sFront - 25, Math.min(sFront - 5, this.lineside.s - 6)); const g = frameAt(R, aim, 0, 2); lookAt = new THREE.Vector3(g.x, g.y, g.z);
     }
+    if (this.freeCam) { target.copy(this.freeCam.pos); lookAt = this.freeCam.look.clone(); }
     if (mode !== 'cab') { if (this.snap) this.camera.position.copy(target); else this.camera.position.lerp(target, 1 - Math.exp(-dt * (mode === 'follow' ? 8 : 20))); this.camera.lookAt(lookAt); }
     else this.camera.position.copy(target);
     const fov = mode === 'cab' ? fovBase : (mode === 'follow' ? 58 : 38);
@@ -157,5 +159,10 @@ export class View {
     this.composer.render();
   }
 
-  dispose() { this.renderer.dispose(); }
+  dispose() {
+    this.composer?.dispose?.();
+    this.terrain.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();      // release all GPU resources; the next journey gets a fresh canvas
+  }
 }

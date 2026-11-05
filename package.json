@@ -1,35 +1,81 @@
 {
   "name": "train-simulator",
   "version": "0.2.0",
-  "description": "2D train driving simulator for Windows and macOS",
+  "description": "Realistic 3D train driving simulator for Windows and macOS",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
+    "dev": "electron . --dev",
     "test": "node --test test/*.test.js",
+    "test:e2e": "node tools/e2e.mjs",
     "vendor": "node tools/vendor.mjs",
     "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win"
+    "dist:win": "electron-builder --win",
+    "dist": "electron-builder"
   },
   "build": {
     "appId": "com.akshsim1991.trainsimulator",
     "productName": "Train Simulator",
+    "copyright": "Copyright \u00a9 2026",
     "files": [
       "main.cjs",
-      "preload.cjs",
+      "package.json",
       "src/**/*",
-      "src/vendor/**/*"
+      "build/icon.png",
+      "!src/**/*.map"
     ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
     "mac": {
-      "category": "public.app-category.games",
+      "category": "public.app-category.simulation-games",
+      "icon": "build/icon.png",
+      "identity": null,
       "target": [
-        "dmg"
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ]
     },
     "win": {
+      "icon": "build/icon.png",
       "target": [
-        "nsis",
-        "portable"
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Game",
+      "icon": "build/icon.png"
     }
   },
   "devDependencies": {
@@ -37,5 +83,7 @@
     "electron-builder": "^24.13.3",
     "three": "0.170.0"
   },
-  "type": "module"
+  "type": "module",
+  "author": "akshsim1991",
+  "license": "MIT"
 }

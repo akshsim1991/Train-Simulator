@@ -73,6 +73,11 @@ export class Terrain {
     const t = Math.max(0, Math.min(1, (h - sea) / (R.preset.amp * 1.4 + 40)));
     for (let i = 0; i < 3; i++) c[i] = P.low[i] * (1 - t) + P.high[i] * t;
     const k = 0.78 + n * 0.44; c = c.map((v) => v * k);
+    if (!P.snow) { // patchwork of fields: darker pasture / paler hay
+      const f = fbm(x / 240, z / 240, 31, 2), hay = Math.max(0, Math.min(1, (f - 0.54) / 0.03)), dark = Math.max(0, Math.min(1, (0.36 - f) / 0.03));
+      const hayC = [0.50, 0.46, 0.18].map((v) => Math.pow(v, 2.2));
+      for (let i = 0; i < 3; i++) c[i] = c[i] * (1 - hay * 0.8) * (1 - dark * 0.3) + hayC[i] * hay * 0.8;
+    }
     const rock = Math.max(0, Math.min(1, (slope - 0.55) / 0.5)); // slope in rise/run
     for (let i = 0; i < 3; i++) c[i] = c[i] * (1 - rock) + P.rock[i] * rock * (0.85 + n * 0.3);
     const shore = Math.max(0, 1 - (h - sea) / 3.5);

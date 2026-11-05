@@ -18,9 +18,10 @@ const CAMERAS = ['cab', 'follow', 'lineside'];
 
 let app = null;       // { game, view, hud, ctl, raf }
 let paused = false, muted = false;
-window.__debug = { get app() { return app; } };
+window.__debug = { get app() { return app; }, audio };
 
 async function startJourney() {
+  window.__ready = false;
   const s = data.settings; storage.save(data);
   audio.volume = s.volume; audio.voice = s.voice; audio.init();
   const progress = screens.loading('Building the line…');
@@ -29,7 +30,8 @@ async function startJourney() {
   const game = new Game(route, { weather: s.weather, startHour: s.hour, alerter: s.alerter, seed: (Date.now() / 1000) | 0 });
   if (params.get('s')) game.placeAt(parseFloat(params.get('s')), parseFloat(params.get('v') || 0));
   teardown();
-  const canvas = document.getElementById('scene');
+  // a fresh canvas per journey: a lost WebGL context cannot be reused
+  const oldCanvas = document.getElementById('scene'); const canvas = oldCanvas.cloneNode(false); oldCanvas.replaceWith(canvas);
   const view = new View(canvas, route, { quality: s.quality, weather: game.weather, startHour: s.hour });
   view.setMode(params.get('cam') || 'cab');
   await view.preload(game.train.s, (a, b) => progress(a / Math.max(1, b)));
@@ -50,7 +52,7 @@ async function startJourney() {
 }
 
 function teardown() {
-  if (!app) return; cancelAnimationFrame(app.raf); app.ctl.dispose(); app.view.dispose(); audio.silenceAll(); window.speechSynthesis?.cancel?.(); app = null;
+  if (!app) return; cancelAnimationFrame(app.raf); app.ctl.dispose(); app.view.dispose(); audio.silenceAll(); window.speechSynthesis?.cancel?.(); app = null; window.__ready = false;
 }
 
 function setPaused(p, help = false) {

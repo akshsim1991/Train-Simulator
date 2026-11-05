@@ -161,7 +161,7 @@ export function computeHint(game) {
   const sg = game.nextSignal();
   if (rec.served && rec.boarded && stopped && sg && sg.aspect === 'R' && sg.kind === 'starter') return 'Starter signal is red. Wait for it to clear.';
   if (rec.served && rec.boarded && stopped && sg && sg.aspect !== 'R' && !T.emergency) return 'Signal clear — hold W to apply power.';
-  if (sg && sg.aspect === 'R' && sg.s - T.s < 1200 && Math.abs(T.v) > 3 && !(i === 0 && !rec.served)) return `Red signal in ${Math.round((sg.s - T.s) / 10) * 10} m — brake to stop short of it.`;
+  if (sg && sg.aspect === 'R' && sg.s - T.s < 1200 && Math.abs(T.v) > 3) return `Red signal in ${Math.round((sg.s - T.s) / 10) * 10} m — brake to stop short of it.`;
   if (!rec.served && i > 0 && st.stopS - T.s < 700 && st.stopS - T.s > 0) return stopped ? 'Press T to open the doors.' : 'Approaching the station — brake to stop at the yellow marker.';
   if (!rec.served && i > 0 && stopped && st.stopS - T.s > -100) return 'Press T to open the doors.';
   return null;

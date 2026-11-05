@@ -1,6 +1,6 @@
 import * as THREE from './three.js';
 import { stripGeometry, trackMatrix, frameAt, hashRand } from './geom.js';
-import { concreteTexture, glowTexture, textTexture, speedSignTexture } from './textures.js';
+import { concreteTexture, glowTexture, textTexture, speedSignTexture, houseTexture } from './textures.js';
 
 const concrete = () => new THREE.MeshStandardMaterial({ map: concreteTexture('#b4b3ad', 4), roughness: 0.92, side: THREE.DoubleSide });
 
@@ -228,7 +228,7 @@ export class Structures {
       }
     });
     if (!homes.length) return;
-    const walls = new THREE.InstancedMesh(wallGeo, new THREE.MeshStandardMaterial({ roughness: 0.9 }), homes.length);
+    const walls = new THREE.InstancedMesh(wallGeo, new THREE.MeshStandardMaterial({ roughness: 0.9, map: houseTexture() }), homes.length);
     const roofs = new THREE.InstancedMesh(roofGeo, new THREE.MeshStandardMaterial({ roughness: 0.85 }), homes.length);
     const c = new THREE.Color();
     homes.forEach((h, i) => {

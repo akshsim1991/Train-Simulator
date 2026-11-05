@@ -49,7 +49,13 @@ await p.keyboard.press('KeyE'); a = await app(); ok(!a.em, 'E resets the brake o
 await p.evaluate(() => { const g = window.__debug.app.game; g._finish(); });
 await p.waitForSelector('.modal .grade', { timeout: 60000 }); ok(true, 'results screen appears');
 await freezeShot('e2e_results');
-await p.click('#menu'); await p.waitForSelector('.rcard');
+// audio engine: every one-shot event and the per-frame mix must run without throwing
+const audioInfo = await p.evaluate(() => { const au = window.__debug.audio; const out = { state: au.ctx && au.ctx.state, enabled: au.enabled }; try { for (const t of ['horn-on','horn-off','aws-clear','aws-ack','doors-open','doors-close','boarding-done','deny','emergency','spad','overspeed','depart','signal-clear','announce','finished','failed','reset']) au.event({ type: t, name: 'Test' }); out.events = 'ok'; } catch (e) { out.events = String(e); } return out; });
+ok(audioInfo.enabled && audioInfo.events === 'ok', 'audio engine initialised and handles all events ' + JSON.stringify(audioInfo));
+// restart path: Drive again must create a fresh canvas/renderer without errors
+await p.click('#again'); await p.waitForFunction(() => window.__ready, null, { timeout: 240000 });
+a = await app(); ok(a && a.phase === 'running' && Math.abs(a.v) < 0.01, 'Drive again restarts the journey cleanly');
+await p.keyboard.press('KeyP'); await p.click('#q'); await p.waitForSelector('.rcard'); ok(true, 'pause -> quit returns to the menu');
 ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.slice(0, 3).join(' | ') : ''));
 console.log(fails ? `${fails} FAILED` : 'ALL PASSED');
 await b.close(); srv.close(); process.exit(fails ? 1 : 0);

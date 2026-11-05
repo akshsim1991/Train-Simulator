@@ -24,7 +24,7 @@ function bodyGeometry(len) {
 /** Lofted nose: rings of the profile that taper and rake backwards toward the tip (-z is forward). */
 function noseGeometry() {
   const pts = profilePoints(); const K = 10, M = pts.length;
-  const pos = [], idx = [];
+  const pos = [], idx = [], col = [];
   for (let k = 0; k <= K; k++) {
     const t = k / K;
     for (let j = 0; j < M; j++) {
@@ -33,6 +33,9 @@ function noseGeometry() {
       const yy = FLOOR + (y - FLOOR) * (1 - 0.3 * Math.pow(t, 1.6) * hi) ;
       const z = -t * NOSE + hi * 1.6 * Math.pow(t, 1.3);  // windscreen rake: upper points sit further back
       pos.push(x * sx, yy - (1 - sy) * 0.0, z);
+      // windscreen: dark glass band on the upper front, white elsewhere (soft-edged by interpolation)
+      const glassy = t > 0.22 && y > 2.3 && y < 3.5 ? 1 : 0;
+      col.push(glassy ? 0.03 : 1, glassy ? 0.04 : 1, glassy ? 0.05 : 1);
     }
   }
   for (let k = 0; k < K; k++) for (let j = 0; j < M; j++) {
@@ -42,9 +45,9 @@ function noseGeometry() {
   // front cap
   const cIdx = pos.length / 3; let cx = 0, cy = 0, cz = 0;
   for (let j = 0; j < M; j++) { const i = (K * M + j) * 3; cx += pos[i]; cy += pos[i + 1]; cz += pos[i + 2]; }
-  pos.push(cx / M, cy / M, cz / M / 1);
+  pos.push(cx / M, cy / M, cz / M / 1); col.push(0.03, 0.04, 0.05);
   for (let j = 0; j < M; j++) idx.push(cIdx, K * M + (j + 1) % M, K * M + j);
-  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setIndex(idx); g.computeVertexNormals();
   return g;
 }
 
@@ -53,6 +56,7 @@ export class TrainModel {
     this.scene = scene; this.route = route; this.unit = unit;
     this.group = new THREE.Group(); scene.add(this.group);
     const paint = new THREE.MeshPhysicalMaterial({ color: 0xeef0f3, roughness: 0.32, metalness: 0.25, clearcoat: 0.8, clearcoatRoughness: 0.2 });
+    const nosePaint = paint.clone(); nosePaint.vertexColors = true;
     const dark = new THREE.MeshStandardMaterial({ color: 0x23272d, roughness: 0.7, metalness: 0.3 });
     const glass = new THREE.MeshPhysicalMaterial({ color: 0x0b1016, roughness: 0.06, metalness: 0.9, clearcoat: 1 });
     const stripe = new THREE.MeshStandardMaterial({ color: 0x1457b0, roughness: 0.4, metalness: 0.2, side: THREE.DoubleSide });
@@ -89,26 +93,20 @@ export class TrainModel {
       const skirt = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.55, blen - 1.0), dark); skirt.position.set(0, 0.42, end ? (end === 'front' ? NOSE / 2 : -NOSE / 2) : 0); car.add(skirt);
       const roofBox = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.28, 3.2), roofMat); roofBox.position.set(0, ROOF + 0.1, end ? 0 : 2); car.add(roofBox);
       if (end) {
-        const n = new THREE.Mesh(nose, paint); n.castShadow = true; n.position.z = end === 'front' ? -(BODY_LEN - NOSE) / 2 + NOSE / 2 - NOSE / 2 + 0 : 0;
-        // nose attaches at the car's outer end
-        const nz = (end === 'front' ? -1 : 1) * (BODY_LEN / 2 - NOSE);
-        n.position.z = end === 'front' ? -BODY_LEN / 2 + NOSE : BODY_LEN / 2 - NOSE; n.position.z = end === 'front' ? -(BODY_LEN / 2) + NOSE : (BODY_LEN / 2) - NOSE;
-        n.position.z += end === 'front' ? 0 : 0; n.rotation.y = end === 'front' ? 0 : Math.PI;
-        n.position.z = end === 'front' ? -BODY_LEN / 2 + NOSE : BODY_LEN / 2 - NOSE;
-        car.add(n);
-        // windscreen
-        const ws = new THREE.Mesh(new THREE.PlaneGeometry(2.0, 1.0), glass);
-        const sgn = end === 'front' ? 1 : -1;
-        ws.position.set(0, 3.0, n.position.z - sgn * (NOSE * 0.62) + sgn * 0.0); ws.rotation.set(-0.5 * sgn, end === 'front' ? Math.PI : 0, 0);
-        ws.position.z = n.position.z - sgn * 1.9; ws.position.y = 3.05; ws.rotation.x = sgn * -0.0;
-        ws.scale.set(1, 1, 1); car.add(ws);
-        // lights
         const front = end === 'front';
+        // Nose: its geometry is authored pointing to -z. The car body spans [-BODY_LEN/2, BODY_LEN/2]; the nose
+        // occupies the outer NOSE metres of the car, so it is attached to the end of the shortened body.
+        const dir = front ? -1 : 1;                       // outward direction along z
+        const n = new THREE.Mesh(nose, nosePaint); n.castShadow = true;
+        n.position.z = front ? -BODY_LEN / 2 + NOSE : BODY_LEN / 2 - NOSE;
+        n.rotation.y = front ? 0 : Math.PI;
+        car.add(n);
+        // Lights (white at the front, red at the rear)
         for (const sx of [-0.85, 0.85]) {
           const col = front ? 0xfff3d6 : 0xff2a1a;
           const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 8), new THREE.MeshStandardMaterial({ color: 0x111111, emissive: col, emissiveIntensity: front ? 0.6 : 1.2 }));
-          lamp.position.set(sx, 1.15, front ? -BODY_LEN / 2 - 0.1 + 0.0 : BODY_LEN / 2 + 0.1); car.add(lamp);
-          lamp.userData.front = front; this.headlights.push(lamp);
+          lamp.position.set(sx * 0.82, 1.05, dir * (BODY_LEN / 2 - 0.55));
+          lamp.userData.front = front; car.add(lamp); this.headlights.push(lamp);
         }
         if (front) {
           // the beam lives at the scene root so it still lights the track when the train mesh is hidden (cab view)

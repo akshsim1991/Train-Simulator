@@ -114,3 +114,13 @@ export function speedSignTexture(kmh, tsr = false) {
     ctx.fillStyle = '#111'; ctx.font = `bold ${kmh >= 100 ? 54 : 64}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(String(kmh), 64, 68);
   }, { repeat: false });
 }
+
+export function houseTexture() {
+  return canvasTex(128, 128, (ctx, w, h) => {
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = '#3a4b5e';
+    for (const x of [18, 80]) { ctx.fillRect(x, 22, 30, 36); ctx.fillStyle = '#c9d6e3'; ctx.fillRect(x + 2, 24, 26, 15); ctx.fillStyle = '#3a4b5e'; ctx.fillRect(x + 14, 22, 2, 36); }
+    ctx.fillStyle = '#5a3d28'; ctx.fillRect(52, 70, 24, 58);
+    ctx.fillStyle = '#9aa0a8'; ctx.fillRect(0, 118, w, 10);
+  });
+}
