@@ -1,0 +1,23 @@
+{
+  "name": "train-simulator",
+  "version": "0.1.0",
+  "description": "2D train driving simulator for Windows and macOS",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/sim.test.js",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win"
+  },
+  "build": {
+    "appId": "com.akshsim1991.trainsimulator",
+    "productName": "Train Simulator",
+    "files": ["main.js", "src/**/*"],
+    "mac": { "category": "public.app-category.games", "target": ["dmg"] },
+    "win": { "target": ["nsis", "portable"] }
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  }
+}
