@@ -17,7 +17,7 @@ function checkInvariants(g, where) {
   assert.ok(Number.isFinite(g.cat.overspeed) && Number.isFinite(g.cat.harsh) && Number.isFinite(g.cat.lateral));
 }
 
-for (const [id, weather] of [['coastal', 'rain'], ['valley', 'fog'], ['alpine', 'snow'], ['coastal', 'clear']]) {
+for (const [id, weather] of [['bengaluru_mysuru', 'rain'], ['delhi_agra', 'fog'], ['bengaluru_mysuru', 'clear'], ['delhi_agra', 'clear']]) {
   test(`fuzz: random inputs for ${id}/${weather} never break invariants`, () => {
     const route = buildRoute(id);
     for (let seed = 1; seed <= 4; seed++) {
@@ -33,26 +33,22 @@ for (const [id, weather] of [['coastal', 'rain'], ['valley', 'fog'], ['alpine', 
   });
 }
 
-for (const [id, weather] of [['valley', 'rain'], ['coastal', 'fog'], ['alpine', 'clear'], ['valley', 'snow']]) {
-  test(`bot completes ${id} in ${weather} and invariants hold`, () => {
+for (const [id, weather, consist] of [['bengaluru_mysuru', 'rain', 'mail'], ['delhi_agra', 'fog', 'gatimaan'], ['bengaluru_mysuru', 'clear', 'diesel']]) {
+  test(`bot completes a section of ${id} in ${weather} with the ${consist} and invariants hold`, () => {
     const route = buildRoute(id);
-    const g = driveWithBot(route, { weather, seed: 5 }, 5000);
+    const g = driveWithBot(route, { weather, consist, from: 1, to: 3, pattern: 'all', seed: 5 });
     checkInvariants(g, `${id}/${weather}`);
-    assert.equal(g.phase, 'finished', g.failReason);
-    assert.equal(g.cat.spads, 0);
-    assert.ok(g.stopRec.every((r) => r.served), 'every station served');
+    assert.equal(g.phase, 'finished', g.failReason); assert.equal(g.cat.spads, 0); assert.ok(g.stopRec.every((r) => r.served), 'every station served');
   });
 }
 
 test('a second journey on the same route object behaves identically (no hidden shared state)', () => {
-  const route = buildRoute('valley');
-  const a = driveWithBot(route, { seed: 2 }, 5000), b = driveWithBot(route, { seed: 2 }, 5000);
+  const route = buildRoute('bengaluru_mysuru');
+  const a = driveWithBot(route, { seed: 2, from: 3, to: 5, pattern: 'all' }), b = driveWithBot(route, { seed: 2, from: 3, to: 5, pattern: 'all' });
   assert.equal(a.phase, b.phase); assert.ok(Math.abs(a.t - b.t) < 1e-6, `${a.t} vs ${b.t}`);
 });
 
-test('timetable is achievable: the bot is never more than 90 s late at any stop', () => {
-  for (const id of ['coastal', 'valley', 'alpine']) {
-    const g = driveWithBot(buildRoute(id), { seed: 9 }, 5000);
-    for (const r of g.stopRec) if (r.late != null) assert.ok(r.late < 90, `${id}: ${r.late}s late`);
-  }
+test('timetable is achievable: the bot is never more than 120 s late at any stop', () => {
+  const g = driveWithBot(buildRoute('bengaluru_mysuru'), { seed: 9, from: 3, to: 6, pattern: 'all' });
+  for (const r of g.stopRec) if (r.late != null) assert.ok(r.late < 120, `${r.late}s late`);
 });

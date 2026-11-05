@@ -2,7 +2,7 @@ import * as THREE from './three.js';
 import { stripGeometry, trackMatrix, frameAt, hashRand } from './geom.js';
 import { concreteTexture, glowTexture, textTexture, speedSignTexture, houseTexture } from './textures.js';
 
-const concrete = () => new THREE.MeshStandardMaterial({ map: concreteTexture('#b4b3ad', 4), roughness: 0.92, side: THREE.DoubleSide });
+const concrete = () => new THREE.MeshLambertMaterial({ map: concreteTexture('#b4b3ad', 4), side: THREE.DoubleSide });
 
 export class Structures {
   constructor(scene, route, quality) {
@@ -31,7 +31,7 @@ export class Structures {
     const yellow = new THREE.MeshStandardMaterial({ color: 0xf2c200, roughness: 0.8 });
     const roofMat = new THREE.MeshStandardMaterial({ color: 0x3d4b5c, roughness: 0.6, metalness: 0.3, side: THREE.DoubleSide });
     const steel = new THREE.MeshStandardMaterial({ color: 0x59606a, roughness: 0.5, metalness: 0.7 });
-    const wall = new THREE.MeshStandardMaterial({ color: 0xcfc3ae, roughness: 0.9 });
+    const wall = new THREE.MeshLambertMaterial({ color: 0xcfc3ae });
     const roofTile = new THREE.MeshStandardMaterial({ color: 0x7a3b2e, roughness: 0.85 });
     const postGeo = new THREE.BoxGeometry(0.22, 4.4, 0.22); postGeo.translate(0, 2.2, 0);
     const lampGeo = new THREE.BoxGeometry(0.5, 0.12, 0.5);
@@ -40,7 +40,7 @@ export class Structures {
       const s0 = st.s - st.platformLength / 2, s1 = st.s + st.platformLength / 2;
       const top = 0.92;
       const pf = stripGeometry(R, s0, s1, 6, [[1.65, 0, 0], [1.65, top, 0.1], [7.4, top, 0.8], [7.4, 0, 1]], { vScale: 6 });
-      const pm = new THREE.Mesh(pf, conc); pm.receiveShadow = true; pm.castShadow = true; this.add(pm);
+      const pm = new THREE.Mesh(pf, conc); pm.receiveShadow = true; this.add(pm);
       const line = stripGeometry(R, s0, s1, 6, [[1.7, top + 0.01, 0], [2.3, top + 0.01, 1]]);
       this.add(new THREE.Mesh(line, yellow));
       // canopy
@@ -53,7 +53,7 @@ export class Structures {
       for (let i = 0; i <= n; i++) {
         posts.setMatrixAt(i, trackMatrix(R, cs0 + i * 12, 5.2, top)); lamps.setMatrixAt(i, trackMatrix(R, cs0 + i * 12 + 6, 4.0, top + 3.95));
       }
-      posts.castShadow = true; this.add(posts); this.add(lamps);
+      this.add(posts); this.add(lamps);
       // name boards along the platform
       for (const k of [-0.32, 0.0, 0.32]) {
         const tex = textTexture(st.name.toUpperCase(), { w: 512, h: 112, bg: '#0f3d6e', font: 'bold 52px system-ui, sans-serif' });
@@ -65,10 +65,10 @@ export class Structures {
       }
       // station building (rear of platform)
       const bw = 8.5, bl = 26;
-      const body = new THREE.Mesh(new THREE.BoxGeometry(bw, 3.8, bl), wall); this.place(body, st.s - 30, 12.0, 1.9 + top - 0.9, {}); body.castShadow = true; body.receiveShadow = true; this.add(body);
+      const body = new THREE.Mesh(new THREE.BoxGeometry(bw, 3.8, bl), wall); this.place(body, st.s - 30, 12.0, 1.9 + top - 0.9, {}); this.add(body);
       const roofShape = new THREE.Shape(); roofShape.moveTo(-bw / 2 - 0.6, 0); roofShape.lineTo(bw / 2 + 0.6, 0); roofShape.lineTo(0, 2.2); roofShape.closePath();
       const rg = new THREE.ExtrudeGeometry(roofShape, { depth: bl + 1.2, bevelEnabled: false }); rg.translate(0, 0, -(bl + 1.2) / 2);
-      const roofM = new THREE.Mesh(rg, roofTile); this.place(roofM, st.s - 30, 12.0, 3.8 + top - 0.9, {}); roofM.castShadow = true; this.add(roofM);
+      const roofM = new THREE.Mesh(rg, roofTile); this.place(roofM, st.s - 30, 12.0, 3.8 + top - 0.9, {}); this.add(roofM);
       const nameTex = textTexture(st.name, { w: 512, h: 96, bg: '#efe7d4', fg: '#1b2a3a', border: null, font: 'bold 52px Georgia, serif' });
       const sign = new THREE.Mesh(new THREE.PlaneGeometry(7, 1.3), new THREE.MeshStandardMaterial({ map: nameTex, roughness: 0.8 }));
       this.place(sign, st.s - 30, 7.76, top + 2.7, {}); sign.matrix.multiply(new THREE.Matrix4().makeRotationY(-Math.PI / 2)); this.add(sign);
@@ -87,7 +87,7 @@ export class Structures {
         crowd.setMatrixAt(i, m);
         col.setHSL(hashRand(si, i, 15), 0.35 + hashRand(si, i, 16) * 0.3, 0.3 + hashRand(si, i, 17) * 0.3); crowd.setColorAt(i, col);
       }
-      crowd.castShadow = true; crowd.frustumCulled = false; this.add(crowd); this.platforms.push({ crowd, count: 42 });
+      crowd.castShadow = false; crowd.frustumCulled = true; crowd.computeBoundingSphere(); this.add(crowd); this.platforms.push({ crowd, count: 42 });
     });
   }
 
@@ -117,8 +117,7 @@ export class Structures {
       });
       // face the approaching driver: object +z must point against the direction of travel (toward -s)
       grp.matrix.multiply(new THREE.Matrix4().makeRotationY(0)); // local +z already points backward along the track
-      pole.castShadow = true;
-      this.add(grp); this.signals.push({ id: sg.id, s: sg.s, lamps, grp, aspect: null, world: new THREE.Vector3().setFromMatrixPosition(grp.matrix).add(new THREE.Vector3(0, 5.5, 0)) });
+            this.add(grp); this.signals.push({ id: sg.id, s: sg.s, lamps, grp, aspect: null, world: new THREE.Vector3().setFromMatrixPosition(grp.matrix).add(new THREE.Vector3(0, 5.5, 0)) });
     }
   }
 
@@ -153,11 +152,11 @@ export class Structures {
       for (let a = 0; a <= 16; a++) { const th = Math.PI - Math.PI * a / 16; prof.push([rad * Math.cos(th), cy + rad * Math.sin(th) * 0.95, (3.5 + 13.2 * a / 16) / 4]); }
       prof.push([rad, cy, 16.7 / 4], [rad, -0.5, 20.2 / 4]);
       const geo = stripGeometry(R, t.s0, t.s1, 4, prof, { vScale: 6 });
-      const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = true; this.add(m);
+      const m = new THREE.Mesh(geo, mat); this.add(m);
       const n = Math.floor((t.s1 - t.s0) / 10);
       const lamps = new THREE.InstancedMesh(lampGeo, lampMat, n * 2);
       for (let i = 0; i < n; i++) { lamps.setMatrixAt(i * 2, trackMatrix(R, t.s0 + 6 + i * 10, -2.1, 7.0)); lamps.setMatrixAt(i * 2 + 1, trackMatrix(R, t.s0 + 6 + i * 10, 2.1, 7.0)); }
-      lamps.frustumCulled = false; this.add(lamps);
+      lamps.computeBoundingSphere(); this.add(lamps);
       // portals
       for (const [s, flip] of [[t.s0, false], [t.s1, true]]) {
         const sh = new THREE.Shape(); sh.moveTo(-8.5, -2); sh.lineTo(8.5, -2); sh.lineTo(7.2, 8.2); sh.lineTo(-7.2, 8.2); sh.closePath();
@@ -166,7 +165,7 @@ export class Structures {
         for (let a = 0; a <= 20; a++) { const th = Math.PI - Math.PI * a / 20; hole.lineTo((rad + 0.05) * Math.cos(th), cy + (rad + 0.05) * Math.sin(th) * 0.95); }
         hole.lineTo(rad + 0.05, -2); hole.closePath(); sh.holes.push(hole);
         const pg = new THREE.ExtrudeGeometry(sh, { depth: 3.0, bevelEnabled: false });
-        const pm = new THREE.Mesh(pg, portalMat); pm.castShadow = true; pm.receiveShadow = true;
+        const pm = new THREE.Mesh(pg, portalMat);
         this.place(pm, s, 0, 0, { yaw: flip ? Math.PI : 0 });
         if (flip) pm.matrix.multiply(new THREE.Matrix4().makeTranslation(0, 0, 0));
         this.add(pm);
@@ -180,18 +179,18 @@ export class Structures {
     const steel = new THREE.MeshStandardMaterial({ color: 0x6c727b, roughness: 0.45, metalness: 0.75, side: THREE.DoubleSide });
     for (const b of R.bridges) {
       const deck = stripGeometry(R, b.s0, b.s1, 4, [[-3.6, -0.6, 0], [3.6, -0.6, 0.5], [3.6, -1.9, 1], [-3.6, -1.9, 0.5]], { closeLoop: true });
-      const dm = new THREE.Mesh(deck, conc); dm.castShadow = true; dm.receiveShadow = true; this.add(dm);
+      const dm = new THREE.Mesh(deck, conc); this.add(dm);
       for (const side of [-1, 1]) {
         const rail = stripGeometry(R, b.s0, b.s1, 4, side < 0 ? [[-3.55, -0.5, 0], [-3.55, 1.1, 0.5], [-3.35, 1.1, 1], [-3.35, -0.5, 0.5]] : [[3.35, -0.5, 0], [3.35, 1.1, 0.5], [3.55, 1.1, 1], [3.55, -0.5, 0.5]], { closeLoop: true });
-        const rm = new THREE.Mesh(rail, conc); rm.castShadow = true; this.add(rm);
+        const rm = new THREE.Mesh(rail, conc); this.add(rm);
       }
       const L = b.s1 - b.s0; const n = Math.max(2, Math.round(L / 38));
       for (let i = 0; i <= n; i++) {
         const s = b.s0 + 14 + (L - 28) * i / n; const f = frameAt(R, s, 0, -1.9);
         const ground = Math.min(R.natural(f.x, f.z), f.y - 1.5);
         const h = f.y - ground + 1; if (h < 2) continue;
-        const pier = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.7 + h * 0.03, h, 10), conc); pier.position.set(f.x, ground + h / 2 - 1, f.z); pier.castShadow = true; pier.receiveShadow = true; this.add(pier);
-        const cap = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.8, 2.6), conc); this.place(cap, s, 0, -2.3, {}); cap.castShadow = true; this.add(cap);
+        const pier = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.7 + h * 0.03, h, 10), conc); pier.position.set(f.x, ground + h / 2 - 1, f.z); this.add(pier);
+        const cap = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.8, 2.6), conc); this.place(cap, s, 0, -2.3, {}); this.add(cap);
       }
     }
   }
@@ -228,8 +227,8 @@ export class Structures {
       }
     });
     if (!homes.length) return;
-    const walls = new THREE.InstancedMesh(wallGeo, new THREE.MeshStandardMaterial({ roughness: 0.9, map: houseTexture() }), homes.length);
-    const roofs = new THREE.InstancedMesh(roofGeo, new THREE.MeshStandardMaterial({ roughness: 0.85 }), homes.length);
+    const walls = new THREE.InstancedMesh(wallGeo, new THREE.MeshLambertMaterial({ map: houseTexture() }), homes.length);
+    const roofs = new THREE.InstancedMesh(roofGeo, new THREE.MeshLambertMaterial({}), homes.length);
     const c = new THREE.Color();
     homes.forEach((h, i) => {
       const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, h.yaw, 0));
@@ -238,7 +237,7 @@ export class Structures {
       c.setHSL(0.08 + h.hue * 0.1, 0.25, 0.7 + h.hue * 0.15); walls.setColorAt(i, c);
       c.setHSL(0.02 + h.hue * 0.06, 0.45, 0.28 + h.hue * 0.1); roofs.setColorAt(i, c);
     });
-    walls.castShadow = roofs.castShadow = true; walls.receiveShadow = true; walls.frustumCulled = roofs.frustumCulled = false;
+    walls.castShadow = roofs.castShadow = false; walls.frustumCulled = roofs.frustumCulled = true; walls.computeBoundingSphere(); roofs.computeBoundingSphere();
     this.add(walls); this.add(roofs);
   }
 

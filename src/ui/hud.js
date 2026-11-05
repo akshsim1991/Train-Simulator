@@ -106,11 +106,12 @@ export class Hud {
     if (delta == null) { chip.textContent = game.stopRec[game.stationIdx]?.served && game.t < (next?.dep ?? 0) ? `Dep. in ${Math.max(0, Math.ceil(next.dep - game.t))}s` : '—'; chip.className = 'chip'; }
     else { const d = Math.round(delta); chip.textContent = Math.abs(d) < 10 ? 'On time' : d > 0 ? `${d} s late` : `${-d} s early`; chip.className = 'chip ' + (d > 15 ? 'late' : d < -20 ? 'early' : ''); }
     // top right
-    this.el.top.innerHTML = `<b>${R.name}</b><br>${game.weather[0].toUpperCase() + game.weather.slice(1)} · ${view.mode === 'cab' ? 'Cab' : view.mode === 'follow' ? 'Follow' : 'Lineside'}<br>${(T.s / 1000).toFixed(2)} / ${(R.length / 1000).toFixed(1)} km`;
+    const topHtml = `<b>${R.name}</b><br>${game.weather[0].toUpperCase() + game.weather.slice(1)} · ${view.mode === 'cab' ? 'Cab' : view.mode === 'follow' ? 'Follow' : 'Lineside'}<br>${(T.s / 1000).toFixed(1)} / ${(R.length / 1000).toFixed(1)} km`;
+    if (topHtml !== this._topHtml) { this.el.top.innerHTML = topHtml; this._topHtml = topHtml; }
     // toasts
     const log = game.log; for (; this.lastLog < log.length; this.lastLog++) this.toast(log[this.lastLog].text, log[this.lastLog].kind);
-    // speedo & lists
-    this._speedo(game, view);
+    // speedo & lists (the canvas gauge redraws at 30 Hz)
+    if ((this._f = (this._f || 0) + 1) % 2 === 0) this._speedo(game, view);
     const up = game.upcoming(3000).slice(0, 6);
     const rows = this.el.cluster.querySelector('.rows');
     const html = up.map((u) => {

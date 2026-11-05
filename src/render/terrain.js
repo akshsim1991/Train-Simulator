@@ -3,11 +3,11 @@ import { detailTexture, waterNormalTexture } from './textures.js';
 import { hashRand } from './geom.js';
 import { fbm } from '../sim/noise.js';
 
-export const TILE = 200;
+export const TILE = 320;
 const LODS = [
-  { max: 520, res: 40, trees: 150 },
-  { max: 1200, res: 20, trees: 70 },
-  { max: 2500, res: 10, trees: 0 },
+  { max: 420, res: 48, trees: 120 },
+  { max: 900, res: 24, trees: 55 },
+  { max: 2400, res: 12, trees: 0 },
 ];
 
 // Authored in sRGB, converted to linear at load (vertex colours are interpreted as linear).
@@ -29,10 +29,10 @@ function treeGeometries() {
     });
     return THREE.mergeGeometries(gs);
   };
-  const trunk = new THREE.CylinderGeometry(0.25, 0.4, 3, 5);
-  const conifer = mk([[trunk, [0.28, 0.2, 0.13], 1.5], [new THREE.ConeGeometry(2.6, 5, 7), [0.95, 0.95, 0.95], 5],
-    [new THREE.ConeGeometry(2.0, 4.5, 7), [0.95, 0.95, 0.95], 7.6], [new THREE.ConeGeometry(1.3, 3.6, 7), [0.95, 0.95, 0.95], 10]]);
-  const broad = mk([[trunk, [0.3, 0.22, 0.14], 1.5], [new THREE.IcosahedronGeometry(2.8, 0), [0.95, 0.95, 0.95], 5.2], [new THREE.IcosahedronGeometry(2.0, 0), [0.95, 0.95, 0.95], 7.4]]);
+  const trunk = new THREE.CylinderGeometry(0.25, 0.4, 3, 4);
+  const conifer = mk([[trunk, [0.28, 0.2, 0.13], 1.5], [new THREE.ConeGeometry(2.6, 6, 6), [0.95, 0.95, 0.95], 5.5],
+    [new THREE.ConeGeometry(1.7, 5, 6), [0.95, 0.95, 0.95], 9]]);
+  const broad = mk([[trunk, [0.3, 0.22, 0.14], 1.5], [new THREE.IcosahedronGeometry(3.0, 0), [0.95, 0.95, 0.95], 5.6]]);
   return { conifer, broad };
 }
 
@@ -45,11 +45,11 @@ export class Terrain {
     this.queue = [];
     this.group = new THREE.Group(); scene.add(this.group);
     const tex = detailTexture(route.preset.seed, 0.14); tex.repeat.set(1, 1);
-    this.material = new THREE.MeshStandardMaterial({ vertexColors: true, map: tex, roughness: 0.95, metalness: 0 });
+    tex.anisotropy = 4; this.material = new THREE.MeshLambertMaterial({ vertexColors: true, map: tex });
     // world-space detail UVs scaled in geometry (uv = xz / 9)
     const tg = treeGeometries();
     this.treeGeo = tg;
-    const trunkMatBase = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, flatShading: true });
+    const trunkMatBase = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
     this.treeMat = trunkMatBase;
     this.maxRadius = quality.radius;
     this.water = this._makeWater();
@@ -59,7 +59,7 @@ export class Terrain {
   _makeWater() {
     const geo = new THREE.PlaneGeometry(8000, 8000, 1, 1); geo.rotateX(-Math.PI / 2);
     const nm = waterNormalTexture(); nm.repeat.set(120, 120);
-    const mat = new THREE.MeshStandardMaterial({ color: 0x1d5a7a, roughness: 0.08, metalness: 0.15, transparent: true, opacity: 0.88, normalMap: nm, normalScale: new THREE.Vector2(0.22, 0.22) });
+    const mat = new THREE.MeshPhongMaterial({ color: 0x2a6f8f, shininess: 90, specular: 0x6f8fa8, normalMap: nm, normalScale: new THREE.Vector2(0.22, 0.22) });
     const m = new THREE.Mesh(geo, mat); m.position.y = this.route.seaLevel; m.receiveShadow = false; m.renderOrder = 1;
     this.scene.add(m); this.waterNormal = nm; return m;
   }
@@ -149,7 +149,7 @@ export class Terrain {
 
   _trees(group, tx, tz, L, hgt, W, step) {
     const R = this.route, x0 = tx * TILE, z0 = tz * TILE, pal = this.pal;
-    const spacing = L.trees > 100 ? 8.5 : 13;
+    const ts = this.quality.treeScale || 1; const spacing = (L.trees > 100 ? 8.5 : 13) / Math.sqrt(ts);
     const per = Math.floor(TILE / spacing);
     const mats = { conifer: [], broad: [] };
     const sea = R.seaLevel;
@@ -181,7 +181,7 @@ export class Terrain {
         if (R.snow || this.snowAmount > 0) col.lerp(new THREE.Color().setRGB(0.85, 0.9, 0.95, THREE.SRGBColorSpace), this.snowAmount > 0 ? 0.55 : 0.22);
         im.setColorAt(k, col);
       });
-      im.castShadow = L.trees > 100; im.frustumCulled = false; im.computeBoundingSphere?.();
+      im.castShadow = false; im.frustumCulled = true; im.computeBoundingSphere();
       group.add(im);
     }
   }

@@ -10,11 +10,26 @@ import { UNIT } from '../sim/physics.js';
 import { fbm } from '../sim/noise.js';
 
 const dpr = () => (typeof devicePixelRatio !== 'undefined' ? devicePixelRatio : 1);
+// Presets are deliberately conservative: the adaptive resolution scaler below can only lower cost, never raise it
+// past what the preset allows. "post" = full-screen bloom/grade pipeline (high only).
 export const QUALITY = {
-  low: { pixelRatio: 1, shadows: false, shadowMap: 1024, shadowRange: 70, radius: 1500, trees: false, bloom: false, clouds: 8, precip: true, catenary: false, msaa: 0 },
-  medium: { pixelRatio: Math.min(1.5, dpr()), shadows: true, shadowMap: 2048, shadowRange: 90, radius: 2000, trees: true, bloom: true, clouds: 14, precip: true, catenary: true, msaa: 2 },
-  high: { pixelRatio: Math.min(2, dpr()), shadows: true, shadowMap: 4096, shadowRange: 110, radius: 2500, trees: true, bloom: true, clouds: 22, precip: true, catenary: true, msaa: 4 },
+  low:    { pixelRatio: 1, shadows: false, shadowMap: 1024, shadowRange: 50, radius: 1300, trees: true,  treeScale: 0.45, bloom: false, post: false, clouds: 4,  precip: true, catenary: true, msaa: 0 },
+  medium: { pixelRatio: Math.min(1, dpr()), shadows: true, shadowMap: 1024, shadowRange: 55, radius: 1700, trees: true,  treeScale: 0.8, bloom: false, post: false, clouds: 6,  precip: true, catenary: true, msaa: 0 },
+  high:   { pixelRatio: Math.min(1.5, dpr()), shadows: true, shadowMap: 2048, shadowRange: 70, radius: 2100, trees: true, treeScale: 1.0, bloom: true,  post: true,  clouds: 9,  precip: true, catenary: true, msaa: 2 },
 };
+
+/** Choose a preset from the GPU name (integrated / software GPUs get Low). */
+export function detectQuality() {
+  try {
+    const c = document.createElement('canvas'); const gl = c.getContext('webgl2') || c.getContext('webgl'); if (!gl) return 'low';
+    const ext = gl.getExtension('WEBGL_debug_renderer_info'); const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    if (/swiftshader|llvmpipe|software|basic render/i.test(name)) return 'low';
+    if (/apple m[2-9]|rtx|rx [5-9]\d{3}|radeon pro|geforce (gtx )?(10[6-9]|16|20|30|40)/i.test(name)) return 'high';
+    if (/intel|uhd|iris|mali|adreno|vega [0-9]|radeon\(tm\) graphics|gtx (9|10[0-5])|mx\d/i.test(name)) return 'low';
+    return 'medium';
+  } catch (e) { return 'low'; }
+}
 
 const GRADE_SHADER = {
   uniforms: { tDiffuse: { value: null }, vignette: { value: 0.35 }, grain: { value: 0.025 }, time: { value: 0 }, tunnel: { value: 0 } },
@@ -35,11 +50,11 @@ const GRADE_SHADER = {
 export class View {
   constructor(canvas, route, opts) {
     this.canvas = canvas; this.route = route; this.opts = opts;
-    this.q = QUALITY[opts.quality] || QUALITY.medium;
+    this.q = { ...(QUALITY[opts.quality] || QUALITY.low) }; this.baseRatio = this.q.pixelRatio; this.scale = 1; this.ema = 16; this.slowT = 0; this.fastT = 0; this.degradeLevel = 0;
     const r = this.renderer = new THREE.WebGLRenderer({ canvas, antialias: this.q.msaa === 0, powerPreference: 'high-performance' });
     r.info.autoReset = false;
     r.setPixelRatio(this.q.pixelRatio); r.setSize(canvas.clientWidth || innerWidth, canvas.clientHeight || innerHeight, false);
-    r.shadowMap.enabled = this.q.shadows; r.shadowMap.type = THREE.PCFSoftShadowMap;
+    r.shadowMap.enabled = this.q.shadows; r.shadowMap.type = THREE.PCFShadowMap; r.shadowMap.autoUpdate = false; this._shadowTick = 0;
     r.toneMapping = THREE.ACESFilmicToneMapping; r.toneMappingExposure = 1.0; r.outputColorSpace = THREE.SRGBColorSpace;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(62, 16 / 9, 0.12, 6500);
@@ -55,7 +70,7 @@ export class View {
     this.lineside = { s: -1 };
     this.shake = { x: 0, y: 0, roll: 0 };
     this.fov = 62; this._time = 0; this.snap = true;
-    this._setupComposer();
+    if (this.q.post) this._setupComposer();
     this.track.setWet(this.env.wet);
     window.addEventListener('resize', () => this.resize());
     this.resize();
@@ -74,7 +89,7 @@ export class View {
 
   resize() {
     const w = this.canvas.clientWidth || innerWidth, h = this.canvas.clientHeight || innerHeight;
-    this.renderer.setSize(w, h, false); this.composer.setSize(w, h); this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
+    this.renderer.setSize(w, h, false); this.composer?.setSize(w, h); this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
   }
 
   setMode(m) { this.mode = m; this.lineside.s = -1; this.snap = true; }
@@ -153,10 +168,34 @@ export class View {
     this.applyState(game);
     const raining = this.env.weather === 'rain' || this.env.weather === 'snow';
     this.cab.update(T.lever, this.env.night, this.env.weather === 'rain', this._time, { aws: game.alert.aws > 0, doorsOpen: game.doors.open, slip: T.slip });
-    this.grade.uniforms.time.value = this._time % 10; this.grade.uniforms.tunnel.value = this.env.tunnel;
+    if (this.grade) { this.grade.uniforms.time.value = this._time % 10; this.grade.uniforms.tunnel.value = this.env.tunnel; }
     if (this.bloom) this.bloom.strength = 0.3 + 0.45 * this.env.night + 0.2 * this.env.tunnel;
     this.renderer.info.reset();
-    this.composer.render();
+    if (this.q.shadows && (this._shadowTick++ & 1) === 0) this.renderer.shadowMap.needsUpdate = true;   // shadows every 2nd frame
+    if (this.composer) this.composer.render(); else this.renderer.render(this.scene, this.camera);
+    this._adapt(dt);
+  }
+
+  /** Adaptive resolution: keep the frame time near 60 fps by scaling the render resolution, then shed features. */
+  _adapt(dt) {
+    if (dt <= 0 || dt > 0.5) return;
+    this.ema += (dt * 1000 - this.ema) * 0.05;
+    if (this.ema > 22) { this.slowT += dt; this.fastT = 0; } else if (this.ema < 14.5) { this.fastT += dt; this.slowT = 0; } else { this.slowT = 0; this.fastT = 0; }
+    if (this.slowT > 1.2) {
+      this.slowT = 0;
+      if (this.scale > 0.55) this._setScale(this.scale * 0.86);
+      else if (this.ema > 30) this._degrade();
+    } else if (this.fastT > 5 && this.scale < 1) { this.fastT = 0; this._setScale(Math.min(1, this.scale * 1.08)); }
+  }
+  _setScale(sc) {
+    this.scale = sc; const pr = this.baseRatio * sc; this.renderer.setPixelRatio(pr); this.composer?.setPixelRatio?.(pr);
+    const w = this.canvas.clientWidth || innerWidth, h = this.canvas.clientHeight || innerHeight; this.renderer.setSize(w, h, false); this.composer?.setSize(w, h);
+  }
+  _degrade() {
+    this.degradeLevel++;
+    if (this.degradeLevel === 1) { this.q.shadows = false; this.renderer.shadowMap.enabled = false; this.env.sun.castShadow = false; this.scene.traverse((o) => { if (o.material) o.material.needsUpdate = true; }); }
+    else if (this.degradeLevel === 2) { this.terrain.maxRadius = Math.max(900, this.terrain.maxRadius * 0.7); this.scene.fog.far = Math.min(this.scene.fog.far, this.terrain.maxRadius); }
+    this.ema = 16; this.onDegrade?.(this.degradeLevel);
   }
 
   dispose() {

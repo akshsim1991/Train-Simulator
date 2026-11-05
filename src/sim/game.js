@@ -1,9 +1,10 @@
 // Game rules on top of physics + route: signals, safety systems, doors, timetable, scoring.
 import { newTrainState, stepTrain, UNIT, G } from './physics.js';
 import { mulberry32 } from './noise.js';
+import { makeUnit } from './consist.js';
+import { makeSession } from './timetable.js';
 
 export const FIXED_DT = 1 / 120;
-const TRAIN_LEN = UNIT.cars * UNIT.carLength; // 160 m
 const KMH = 3.6;
 
 export const WEATHER = {
@@ -14,12 +15,16 @@ export const WEATHER = {
 };
 
 export class Game {
-  constructor(route, opts = {}) {
-    this.route = route;
-    this.opts = { weather: 'clear', startHour: route.preset.defaultTime, alerter: false, seed: 1, ...opts };
+  constructor(fullRoute, opts = {}) {
+    this.opts = { weather: 'clear', startHour: fullRoute.preset.defaultTime, alerter: false, seed: 1, consist: 'shatabdi', pattern: 'express', ...opts };
+    this.unit = opts.unit || makeUnit(this.opts.consist);
+    // a route that is already a session (chosen stations + timetable) is used as is
+    const route = fullRoute.stationsAll ? fullRoute : makeSession(fullRoute, this.unit, { from: opts.from, to: opts.to, pattern: this.opts.pattern });
+    this.route = route; this.fullRoute = fullRoute.stationsAll ? Object.getPrototypeOf(fullRoute) : fullRoute;
     this.weather = WEATHER[this.opts.weather] ? this.opts.weather : 'clear';
     this.rnd = mulberry32(this.opts.seed * 31 + route.preset.seed);
     this.train = newTrainState(route.stops[0].stopS);
+    this.L = this.unit.length;
     this.t = 0; this.acc = 0;
     this.phase = 'running'; // running | finished | failed
     this.failReason = '';
@@ -175,10 +180,10 @@ export class Game {
   _tick(dt) {
     if (this.phase === 'failed') { this.train.lever = -1; }
     const R = this.route, t = this.train;
-    const centre = t.s - TRAIN_LEN / 2;
+    const centre = t.s - this.L / 2;
 
     // environment from track geometry under the train
-    const g0 = R.gradeAt(t.s), g1 = R.gradeAt(centre), g2 = R.gradeAt(t.s - TRAIN_LEN);
+    const g0 = R.gradeAt(t.s), g1 = R.gradeAt(centre), g2 = R.gradeAt(t.s - this.L);
     this.env.grade = (g0 + g1 + g2) / 3;
     this.env.radius = R.radiusAt(centre);
     this.env.tunnel = R.inTunnel(centre);
@@ -187,7 +192,7 @@ export class Game {
     t.tractionCut = this.doors.open || this.leverLock || this.alert.tpws || this.alert.atp || this.phase !== 'running';
     if (this.phase === 'finished') { t.lever = -0.6; }
 
-    stepTrain(t, dt, this.env);
+    stepTrain(t, dt, this.env, this.unit);
     this.t += dt;
     const v = Math.abs(t.v);
     this.cat.distanceDriven += v * dt; this.cat.maxSpeed = Math.max(this.cat.maxSpeed, v);
@@ -223,7 +228,7 @@ export class Game {
 
   effectiveLimit() {
     const R = this.route;
-    return Math.min(R.limitAt(this.train.s), R.limitAt(this.train.s - TRAIN_LEN));
+    return Math.min(R.limitAt(this.train.s), R.limitAt(this.train.s - this.L));
   }
 
   _speedSupervision(dt) {
@@ -315,12 +320,12 @@ export class Game {
 
   _buffers() {
     const t = this.train, R = this.route;
-    const endS = R.length - 25;
+    const endS = R.bufferS ?? R.length - 25;
     if (t.s > endS) {
       if (t.v > 3) { this._fail('Collided with the buffers at the end of the line.'); }
       else if (t.s > endS + 4) { t.s = endS + 4; t.v = Math.min(t.v, 0); }
     }
-    if (t.s < R.stops[0].stopS - TRAIN_LEN - 15 && t.v < 0) { t.s = R.stops[0].stopS - TRAIN_LEN - 15; t.v = 0; }
+    if (t.s < R.stops[0].stopS - this.L - 15 && t.v < 0) { t.s = R.stops[0].stopS - this.L - 15; t.v = 0; }
   }
 
   // ---------- queries for the UI -----------------------------------------------------------
@@ -331,7 +336,7 @@ export class Game {
 
   /** Allowed-speed guidance (m/s) at the front of the train, incl. braking curve to targets. */
   guidance() {
-    const t = this.train, R = this.route; const B = 0.55;
+    const t = this.train, R = this.route; const B = this.unit.brakeService * 0.8;
     const lim = this.effectiveLimit();
     let ceil = lim, target = null;
     const consider = (dist, vT, label, kind) => {

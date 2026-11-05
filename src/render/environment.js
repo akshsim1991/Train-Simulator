@@ -12,14 +12,14 @@ export const WEATHER_LOOK = {
   snow: { grey: 0.7, fog: 750, cloud: 0.9, sun: 0.45, precip: 'snow' },
 };
 
-const SKY_VS = `varying vec3 vDir; void main(){ vDir = normalize(position); vec4 p = modelViewMatrix * vec4(position,1.0); gl_Position = projectionMatrix * p; gl_Position.z = gl_Position.w; }`;
-const SKY_FS = `
-varying vec3 vDir;
+// Most of the sky is evaluated per-vertex (a 64x32 sphere) so the full-screen fragment cost is tiny.
+const SKY_VS = `
+varying vec3 vDir; varying vec3 vCol;
 uniform vec3 zenith, horizon, warm, sunDir, sunColor;
 uniform float warmAmt, sunVis, grey;
 void main(){
-  vec3 d = normalize(vDir);
-  float h = d.y;
+  vDir = normalize(position);
+  vec3 d = vDir; float h = d.y;
   float up = pow(clamp(h, 0.0, 1.0), 0.42);
   vec3 col = mix(horizon, zenith, up);
   float band = exp(-abs(h) * 5.0);
@@ -27,10 +27,21 @@ void main(){
   float toward = pow(max(dot(hd, sd), 0.0), 2.5);
   col = mix(col, warm, warmAmt * band * (0.25 + 0.75 * toward));
   float s = max(dot(d, sunDir), 0.0);
-  float disc = smoothstep(0.99965, 0.99985, s) * 14.0 * (1.0 - grey);
-  col += sunColor * sunVis * (disc + pow(s, 12.0) * 0.55 * (1.0 - grey * 0.8) + pow(s, 3.0) * 0.16);
+  col += sunColor * sunVis * (pow(s, 12.0) * 0.55 * (1.0 - grey * 0.8) + pow(s, 3.0) * 0.16);
   if (h < 0.0) col = mix(horizon, horizon * 0.8, clamp(-h * 3.0, 0.0, 1.0));
+  vCol = col;
+  vec4 p = modelViewMatrix * vec4(position,1.0); gl_Position = projectionMatrix * p; gl_Position.z = gl_Position.w;
+}`;
+const SKY_FS = `
+varying vec3 vDir; varying vec3 vCol;
+uniform vec3 sunDir, sunColor; uniform float sunVis, grey;
+void main(){
+  vec3 col = vCol;
+  float s = dot(normalize(vDir), sunDir);
+  if (s > 0.9996) col += sunColor * sunVis * smoothstep(0.99965, 0.99985, s) * 14.0 * (1.0 - grey);
   gl_FragColor = vec4(col, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
 }`;
 
 export class Environment {
@@ -47,7 +58,7 @@ export class Environment {
       zenith: { value: new THREE.Vector3() }, horizon: { value: new THREE.Vector3() }, warm: { value: new THREE.Vector3(1, 0.35, 0.1) },
       sunDir: { value: this.sunDir }, sunColor: { value: new THREE.Vector3(1, 0.9, 0.7) }, warmAmt: { value: 0 }, sunVis: { value: 1 }, grey: { value: this.look.grey },
     };
-    this.sky = new THREE.Mesh(new THREE.SphereGeometry(5000, 32, 16), new THREE.ShaderMaterial({ vertexShader: SKY_VS, fragmentShader: SKY_FS, uniforms: this.skyUniforms, side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: false }));
+    this.sky = new THREE.Mesh(new THREE.SphereGeometry(5000, 64, 32), new THREE.ShaderMaterial({ vertexShader: SKY_VS, fragmentShader: SKY_FS, uniforms: this.skyUniforms, side: THREE.BackSide, depthWrite: false, fog: false, toneMapped: true }));
     this.sky.frustumCulled = false; this.sky.renderOrder = -10; scene.add(this.sky);
 
     // --- lights ---------------------------------------------------------------------------
@@ -58,8 +69,6 @@ export class Environment {
     this.sun.shadow.mapSize.set(quality.shadowMap, quality.shadowMap); this.sun.shadow.bias = -0.0003; this.sun.shadow.normalBias = 0.35;
     scene.add(this.sun); scene.add(this.sun.target);
     this.hemi = new THREE.HemisphereLight(0x9bbce8, 0x4a4234, 0.7); scene.add(this.hemi);
-    this.moon = new THREE.DirectionalLight(0x7f95c8, 0); this.moon.position.set(-0.4, 0.8, 0.3); scene.add(this.moon);
-    this.tunnelLight = new THREE.PointLight(0xffe8c0, 0, 45, 1.6); scene.add(this.tunnelLight);
 
     // --- fog -----------------------------------------------------------------------------
     scene.fog = new THREE.Fog(0xaaccee, 60, this.look.fog);
@@ -73,12 +82,12 @@ export class Environment {
 
     // --- clouds ---------------------------------------------------------------------------
     this.clouds = []; const tex = cloudTexture(4); const rr = mulberry32(5);
-    const count = Math.round(quality.clouds * (0.5 + this.look.cloud));
+    const count = Math.max(3, Math.round(quality.clouds * (0.6 + 0.5 * this.look.cloud)));
     for (let i = 0; i < count; i++) {
       const m = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, fog: false, opacity: 0.5 * this.look.cloud + 0.2 });
-      const sp = new THREE.Sprite(m); const ang = rr() * 6.283, dist = 900 + rr() * 3200;
+      const sp = new THREE.Sprite(m); const ang = rr() * 6.283, dist = 1500 + rr() * 2600;
       sp.userData = { x: Math.cos(ang) * dist, z: Math.sin(ang) * dist, y: 380 + rr() * 520 + (1 - this.look.cloud) * 150, speed: 3 + rr() * 4 };
-      const sz = 900 + rr() * 1700; sp.scale.set(sz, sz * 0.45, 1);
+      const sz = 700 + rr() * 900; sp.scale.set(sz, sz * 0.4, 1);
       sp.renderOrder = -8; scene.add(sp); this.clouds.push(sp);
     }
 
@@ -168,13 +177,11 @@ export class Environment {
     this.sun.intensity = sunI; this.sun.color.setRGB(...sunCol);
     this.sun.position.copy(cam).addScaledVector(this.sunDir, 250); this.sun.target.position.copy(cam);
     this.sun.castShadow = this.quality.shadows && sunI > 0.05;
-    this.hemi.intensity = (0.55 + 0.45 * tDay * (1 - 0.35 * grey)) * (0.12 + 0.88 * open);
+    this.hemi.intensity = (0.75 + 0.55 * tDay * (1 - 0.35 * grey)) * (0.12 + 0.88 * open) + this.tunnel * 1.7;
     this.hemi.color.setRGB(0.28 + zen[0] * 2.2, 0.36 + zen[1] * 2.0, 0.58 + zen[2] * 1.6); this.hemi.groundColor.setRGB(0.16, 0.14, 0.12);
-    this.moon.intensity = this.night * 1.1 * open; this.moon.position.set(-0.4, 0.8, 0.3).multiplyScalar(100).add(cam);
     this.scene.environmentIntensity = (0.12 + 0.5 * tDay * (1 - 0.3 * grey)) * (0.05 + 0.95 * open);
     // eye adaptation: brighten the image as the world darkens (never inside tunnels, which are lit artificially)
     this.renderer.toneMappingExposure = (1.0 + 2.3 * this.night * (1 - grey * 0.3)) * (1 - 0.35 * this.tunnel) * (this.weather === 'fog' ? 1.1 : 1);
-    this.tunnelLight.intensity = this.tunnel * 140; this.tunnelLight.position.copy(cam).add(new THREE.Vector3(0, 3.5, 0));
     this.stars.material.opacity = Math.max(0, this.night * (1 - grey)); this.stars.position.copy(cam);
 
     // clouds

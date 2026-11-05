@@ -11,17 +11,17 @@ export class TrackBuilder {
     this.group = new THREE.Group(); scene.add(this.group);
     this.chunks = new Map();
     const bt = ballastTexture(); bt.repeat.set(1, 1);
-    this.ballastMat = new THREE.MeshStandardMaterial({ map: bt, roughness: 1, color: 0xcfcac4 });
-    this.railMat = new THREE.MeshStandardMaterial({ color: 0x8d9096, roughness: 0.35, metalness: 0.85, side: THREE.DoubleSide });
-    this.sleeperMat = new THREE.MeshStandardMaterial({ map: concreteTexture('#a9a8a2', 11), roughness: 0.9 });
+    this.ballastMat = new THREE.MeshLambertMaterial({ map: bt, color: 0xcfcac4 });
+    this.railMat = new THREE.MeshLambertMaterial({ color: 0xa9adb3, side: THREE.DoubleSide });
+    this.sleeperMat = new THREE.MeshLambertMaterial({ map: concreteTexture('#a9a8a2', 11) });
     this.wireMat = new THREE.LineBasicMaterial({ color: 0x2a2d31 });
-    this.mastMat = new THREE.MeshStandardMaterial({ color: 0x7c8087, roughness: 0.6, metalness: 0.6 });
+    this.mastMat = new THREE.MeshLambertMaterial({ color: 0x8a8f96 });
     this.sleeperGeo = new THREE.BoxGeometry(2.6, 0.2, 0.26); this.sleeperGeo.translate(0, -0.1, 0);
     this.mastGeo = this._mastGeometry();
     this.wet = 0;
   }
 
-  setWet(w) { this.wet = w; this.railMat.roughness = 0.35 - 0.2 * w; this.ballastMat.color.setScalar(0.81 - 0.25 * w); }
+  setWet(w) { this.wet = w; this.ballastMat.color.setScalar(0.81 - 0.25 * w); }
 
   _mastGeometry() {
     const pole = new THREE.BoxGeometry(0.26, 7.4, 0.26); pole.translate(0, 3.7, 0);
@@ -91,7 +91,7 @@ export class TrackBuilder {
     }
   }
 
-  update(s, behind = 500, ahead = 2400) {
+  update(s, behind = 350, ahead = 1900) {
     const R = this.route;
     const c0 = Math.max(0, Math.floor((s - behind) / CHUNK)), c1 = Math.min(Math.floor(R.length / CHUNK), Math.floor((s + ahead) / CHUNK));
     for (let ci = c0; ci <= c1; ci++) if (!this.chunks.has(ci)) { const g = this._build(ci); this.group.add(g); this.chunks.set(ci, g); break; } // one per call
@@ -99,7 +99,7 @@ export class TrackBuilder {
   }
 
   preload(s) {
-    const R = this.route; const c0 = Math.max(0, Math.floor((s - 500) / CHUNK)), c1 = Math.min(Math.floor(R.length / CHUNK), Math.floor((s + 2400) / CHUNK));
+    const R = this.route; const c0 = Math.max(0, Math.floor((s - 350) / CHUNK)), c1 = Math.min(Math.floor(R.length / CHUNK), Math.floor((s + 1900) / CHUNK));
     for (let ci = c0; ci <= c1; ci++) if (!this.chunks.has(ci)) { const g = this._build(ci); this.group.add(g); this.chunks.set(ci, g); }
   }
 }

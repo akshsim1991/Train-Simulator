@@ -4,28 +4,15 @@
 
 export const G = 9.81;
 
+// Default unit (Shatabdi-style: WAP-7 + 16 LHB). See consist.js for the other trains and their sources.
+const _M = 123000 + 54000 * 16;
 export const UNIT = {
-  name: 'Class 395-style 8-car EMU',
-  cars: 8,
-  carLength: 20,
-  mass: 330000,             // kg, loaded
-  rotationalFactor: 1.06,   // equivalent inertia of wheels/rotors
-  driveMassFraction: 0.5,   // fraction of mass on powered axles
-  power: 4.2e6,             // W at the rail
-  maxTractive: 340000,      // N
-  topSpeed: 62,             // m/s mechanical limit (223 km/h)
-  brakeService: 1.0,        // m/s^2 at full service (cylinder pressure 1)
-  brakeEmergency: 1.35,     // m/s^2
-  brakeApplyTime: 2.2,      // s, 0 -> full
-  brakeReleaseTime: 3.5,
-  brakeEmergencyTime: 0.9,
-  davisA: 3200,             // N (rolling, constant)
-  davisB: 85,               // N per m/s
-  davisC: 12,               // N per (m/s)^2 (aero)
-  tunnelDragFactor: 1.9,    // multiplies aero term inside a tunnel
-  curveResistance: 650,     // N per kN... see curveForce()
-  staticResistance: 5500,   // N needed to break away on level track
-  tractionRampTime: 1.4,    // s, notch 0 -> 1 (jerk limit)
+  name: 'Shatabdi-style · WAP-7 + 16 LHB', cars: 16, carLength: 23.54, length: 20.56 + 16 * 23.54 + 0.6 * 16,
+  mass: _M, rotationalFactor: 1.06, driveMassFraction: 123000 / _M,
+  power: 4.4e6, maxTractive: 322000, topSpeed: 140 / 3.6,
+  brakeService: 0.62, brakeEmergency: 0.95, brakeApplyTime: 6.4, brakeReleaseTime: 11.5, brakeEmergencyTime: 2.9,
+  davisA: 0.0012 * _M * G, davisB: 0.00011 * _M, davisC: 8 + 0.9 * 16,
+  tunnelDragFactor: 1.9, curveResistance: 650, staticResistance: 0.0022 * _M * G, tractionRampTime: 2.2,
 };
 
 export function newTrainState(s0 = 0) {
@@ -97,9 +84,14 @@ export function stepTrain(t, dt, env = {}, unit = UNIT) {
   const fGrade = -unit.mass * G * Math.sin(theta);           // gravity along track
   let fTrac = t.traction * tractiveEnvelope(t.v, unit);
   if (Math.abs(t.v) >= unit.topSpeed) fTrac = 0;
-  const fAdh = adhesion * unit.mass * unit.driveMassFraction * G;
+  // Adhesion limit on the driven axles. When the wheels start to slip the sanders drop sand automatically
+  // (+0.07 effective adhesion), as on Indian locomotives; beyond that the wheels slip and tractive effort drops.
+  const fAdh0 = adhesion * unit.mass * unit.driveMassFraction * G;
+  const sanding = fTrac > fAdh0;
+  const fAdh = sanding ? (adhesion + 0.07) * unit.mass * unit.driveMassFraction * G : fAdh0;
+  t.sanding = sanding;
   t.slip = fTrac > fAdh;
-  if (t.slip) { fTrac = fAdh * 0.8; t.cumulativeSlip += dt; }
+  if (t.slip) { fTrac = fAdh * 0.9; t.cumulativeSlip += dt; }
   const decelMax = t.emergency ? unit.brakeEmergency : unit.brakeService;
   // braking is limited by adhesion on all axles too
   let fBrake = Math.min(t.brakeCyl * decelMax * unit.mass, adhesion * unit.mass * G * 1.05);
